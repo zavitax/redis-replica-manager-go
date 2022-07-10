@@ -91,7 +91,7 @@ func main() {
 			return nil
 		},
 		NotifyMasterSlotsChangedHandler: func(ctx context.Context, manager redisReplicaManager.ClusterLocalNodeManager) error {
-			slots, _ := manager.GetAllSlotsNodeIsMasterFor(ctx)
+			slots, _ := manager.GetAllSlotsLocalNodeIsMasterFor(ctx)
 
 			fmt.Printf("m1: master slots changed: %v\n", len(*slots))
 
@@ -124,7 +124,7 @@ func main() {
 			return nil
 		},
 		NotifyMasterSlotsChangedHandler: func(ctx context.Context, manager redisReplicaManager.ClusterLocalNodeManager) error {
-			slots, _ := manager.GetAllSlotsNodeIsMasterFor(ctx)
+			slots, _ := manager.GetAllSlotsLocalNodeIsMasterFor(ctx)
 
 			fmt.Printf("m2: master slots changed: %v\n", len(*slots))
 

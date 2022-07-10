@@ -16,7 +16,7 @@ type ClusterLocalNodeManager interface {
 	GetSlotIdentifiers(ctx context.Context) (*[]uint32, error)
 
 	IsSlotMaster(ctx context.Context, slotId uint32) (bool, error)
-	GetAllSlotsNodeIsMasterFor(ctx context.Context) (*[]uint32, error)
+	GetAllSlotsLocalNodeIsMasterFor(ctx context.Context) (*[]uint32, error)
 }
 
 type nodeManager struct {
@@ -84,7 +84,7 @@ func (c *nodeManager) parseSlotId(slotId string) (uint32, error) {
 	}
 }
 
-func (c *nodeManager) GetAllSlotsNodeIsMasterFor(ctx context.Context) (*[]uint32, error) {
+func (c *nodeManager) GetAllSlotsLocalNodeIsMasterFor(ctx context.Context) (*[]uint32, error) {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
 
