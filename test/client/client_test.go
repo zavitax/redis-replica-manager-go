@@ -7,6 +7,8 @@ import (
 	"time"
 	"sync"
 
+	//"github.com/rs/zerolog"
+
 	"github.com/go-redis/redis/v8"
 	redisReplicaManager "github.com/zavitax/redis-replica-manager-go"
 )
@@ -177,6 +179,34 @@ func TestSiteTimeout(t *testing.T) {
 	curr := eventCount["slot_site_removed:timeout"]
 	if curr != expectedTimedOutSlots {
 		t.Errorf("eventCount: %v, expectedTimedOutSlots: %v", curr, expectedTimedOutSlots)
+	}
+
+	client1.Close()
+	client2.Close()
+}
+
+func TestGetAllKnownSites(t *testing.T) {
+	//zerolog.SetGlobalLevel(zerolog.Disabled)
+
+	ctx := context.Background()
+
+	setup()
+
+	options1 := createReplicaManagerOptions("TestSiteTimeout", "site1")
+	options2 := createReplicaManagerOptions("TestSiteTimeout", "site2")
+
+	client1, _ := createReplicaManagerClient(options1)
+	client2, _ := createReplicaManagerClient(options2)
+
+	if sites, err := client1.GetAllKnownSites(ctx); err != nil {
+		t.Error(err)
+	} else {
+		curr := len(sites)
+		expected := 2
+	
+		if curr != expected {
+			t.Errorf("expected %v, got %v", expected, curr)
+		}
 	}
 
 	client1.Close()

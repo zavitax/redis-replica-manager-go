@@ -239,3 +239,16 @@ var scriptGetSiteSlots = redisLuaScriptUtils.NewRedisScript(
 
 		return result;
 	`)
+
+var scriptGetAllSiteIDs = redisLuaScriptUtils.NewRedisScript(
+	[]string{"keySitesTimestamps"},
+	[]string{},
+	`
+		local result = redis.call('ZRANGEBYSCORE', keySitesTimestamps, '-inf', '+inf');
+
+		if result == nil then
+			result = {};
+		end
+
+		return result;
+	`)

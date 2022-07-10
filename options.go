@@ -16,6 +16,13 @@ type ReplicaManagerOptions struct {
 	ManualHeartbeat           bool
 }
 
+type ReplicaRouterOptions struct {
+	TotalSlotsCount      int
+	InitialSitesCount    int
+	MinimumReplicaCount  int
+	ReplicaManagerClient *RedisReplicaManagerClient
+}
+
 var validationError = fmt.Errorf("All Options values must be correctly specified")
 
 func (o *ReplicaManagerOptions) Validate() error {
@@ -36,6 +43,30 @@ func (o *ReplicaManagerOptions) Validate() error {
 	}
 
 	if len(o.SiteID) < 1 {
+		return validationError
+	}
+
+	return nil
+}
+
+func (o *ReplicaRouterOptions) Validate() error {
+	if o == nil {
+		return validationError
+	}
+
+	if o.TotalSlotsCount < 1 || o.TotalSlotsCount > 16384 {
+		return validationError
+	}
+
+	if o.InitialSitesCount < 1 {
+		return validationError
+	}
+
+	if o.MinimumReplicaCount < 1 {
+		return validationError
+	}
+
+	if o.ReplicaManagerClient == nil {
 		return validationError
 	}
 

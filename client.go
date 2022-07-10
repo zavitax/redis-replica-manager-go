@@ -28,6 +28,10 @@ type RedisReplicaManagerClient interface {
 
 	GetSlot(ctx context.Context, slotId string) (*RedisReplicaManagerSiteSlot, error)
 
+	GetSiteID() string
+
+	GetAllKnownSites(ctx context.Context) ([]*RedisReplicaManagerSite, error)
+
 	Close() error
 }
 
@@ -35,6 +39,10 @@ type RedisReplicaManagerSiteSlot struct {
 	SiteID string
 	SlotID string
 	Role   string
+}
+
+type RedisReplicaManagerSite struct {
+	SiteID string
 }
 
 type RedisReplicaManagerUpdate struct {
@@ -69,6 +77,7 @@ type redisReplicaManagerClient struct {
 	callGetTimedOutSites           *redisLuaScriptUtils.CompiledRedisScript
 	callGetSiteSlotInfo            *redisLuaScriptUtils.CompiledRedisScript
 	callGetSiteSlots               *redisLuaScriptUtils.CompiledRedisScript
+	callGetAllSiteIDs              *redisLuaScriptUtils.CompiledRedisScript
 
 	redisKeys []*redisLuaScriptUtils.RedisKey
 }
@@ -135,6 +144,13 @@ func NewRedisReplicaManagerClient(ctx context.Context, options *ReplicaManagerOp
 	if c.callGetSiteSlots, err = redisLuaScriptUtils.CompileRedisScripts(
 		[]*redisLuaScriptUtils.RedisScript{
 			scriptGetSiteSlots,
+		}, c.redisKeys); err != nil {
+		return nil, err
+	}
+
+	if c.callGetAllSiteIDs, err = redisLuaScriptUtils.CompileRedisScripts(
+		[]*redisLuaScriptUtils.RedisScript{
+			scriptGetAllSiteIDs,
 		}, c.redisKeys); err != nil {
 		return nil, err
 	}
@@ -221,6 +237,32 @@ func NewRedisReplicaManagerClient(ctx context.Context, options *ReplicaManagerOp
 	})()
 
 	return c, nil
+}
+
+func (c *redisReplicaManagerClient) GetAllKnownSites(ctx context.Context) ([]*RedisReplicaManagerSite, error) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	args := make(redisLuaScriptUtils.RedisScriptArguments)
+	if response, err := c.callGetAllSiteIDs.Run(ctx, c.redis, &args).Slice(); err != nil {
+		return nil, err
+	} else {
+		result := response[0].([]interface{})
+
+		sites := make([]*RedisReplicaManagerSite, len(result))
+
+		for index, siteId := range result {
+			sites[index] = &RedisReplicaManagerSite{
+				SiteID: siteId.(string),
+			}
+		}
+
+		return sites, nil
+	}
+}
+
+func (c *redisReplicaManagerClient) GetSiteID() string {
+	return c.options.SiteID
 }
 
 func (c *redisReplicaManagerClient) AddSlot(ctx context.Context, slotId string) error {

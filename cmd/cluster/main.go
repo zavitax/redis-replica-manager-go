@@ -7,7 +7,6 @@ import (
 	"time"
 
 	"github.com/go-redis/redis/v8"
-	"github.com/rs/zerolog"
 	redisReplicaManager "github.com/zavitax/redis-replica-manager-go"
 )
 
@@ -44,7 +43,7 @@ func createReplicaManagerClient(options *redisReplicaManager.ReplicaManagerOptio
 }
 
 func main() {
-	zerolog.SetGlobalLevel(zerolog.Disabled)
+	// zerolog.SetGlobalLevel(zerolog.Disabled)
 
 	ctx := context.Background()
 
@@ -64,8 +63,6 @@ func main() {
 	updateNotificationHandler := func(ctx context.Context, msg *redisReplicaManager.RedisReplicaManagerUpdate) error {
 		mutex.Lock()
 		defer mutex.Unlock()
-
-		fmt.Printf("******** UpdateNotificationHandler: %v\n", msg)
 
 		if curr, ok := eventCount[msg.Event]; ok {
 			eventCount[msg.Event] = curr + 1
