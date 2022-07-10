@@ -6,6 +6,7 @@ require (
 	github.com/go-redis/redis/v8 v8.11.5
 	github.com/rs/zerolog v1.27.0
 	github.com/texttheater/golang-levenshtein/levenshtein v0.0.0-20200805054039-cae8b0eaed6c
+	github.com/yourbasic/bit v0.0.0-20180313074424-45a4409f4082
 	github.com/zavitax/redis-lua-script-utils-go v0.0.0-20220630205509-cbebb82e4690
 )
 

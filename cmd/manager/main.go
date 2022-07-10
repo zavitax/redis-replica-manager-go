@@ -90,6 +90,13 @@ func main() {
 
 			return nil
 		},
+		NotifyMasterSlotsChangedHandler: func(ctx context.Context, manager redisReplicaManager.ClusterLocalNodeManager) error {
+			slots, _ := manager.GetAllSlotsNodeIsMasterFor(ctx)
+
+			fmt.Printf("m1: master slots changed: %v\n", len(*slots))
+
+			return nil
+		},
 	})
 
 	manager2, _ := redisReplicaManager.NewClusterLocalNodeManager(ctx, &redisReplicaManager.ClusterNodeManagerOptions{
@@ -113,6 +120,13 @@ func main() {
 					fmt.Printf("m2: allowed to remove slot: %v\n", allowed)
 				}
 			}
+
+			return nil
+		},
+		NotifyMasterSlotsChangedHandler: func(ctx context.Context, manager redisReplicaManager.ClusterLocalNodeManager) error {
+			slots, _ := manager.GetAllSlotsNodeIsMasterFor(ctx)
+
+			fmt.Printf("m2: master slots changed: %v\n", len(*slots))
 
 			return nil
 		},

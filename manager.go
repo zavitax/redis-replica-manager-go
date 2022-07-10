@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"sync"
 	"time"
+
+	"github.com/yourbasic/bit"
 )
 
 type ClusterLocalNodeManager interface {
@@ -12,6 +14,9 @@ type ClusterLocalNodeManager interface {
 	RequestRemoveSlot(ctx context.Context, slotId uint32) (bool, error)
 
 	GetSlotIdentifiers(ctx context.Context) (*[]uint32, error)
+
+	IsSlotMaster(ctx context.Context, slotId uint32) (bool, error)
+	GetAllSlotsNodeIsMasterFor(ctx context.Context) (*[]uint32, error)
 }
 
 type nodeManager struct {
@@ -24,7 +29,8 @@ type nodeManager struct {
 	housekeep_context    context.Context
 	housekeep_cancelFunc context.CancelFunc
 
-	slots map[uint32]bool
+	slots       map[uint32]bool
+	masterSlots *bit.Set
 
 	siteId string
 }
@@ -35,9 +41,10 @@ func NewClusterLocalNodeManager(ctx context.Context, opts *ClusterNodeManagerOpt
 	}
 
 	c := &nodeManager{
-		opts:   opts,
-		slots:  make(map[uint32]bool),
-		siteId: opts.ReplicaManagerClient.GetSiteID(),
+		opts:        opts,
+		slots:       make(map[uint32]bool),
+		masterSlots: bit.New(),
+		siteId:      opts.ReplicaManagerClient.GetSiteID(),
 	}
 
 	c._housekeep(ctx)
@@ -53,6 +60,8 @@ func NewClusterLocalNodeManager(ctx context.Context, opts *ClusterNodeManagerOpt
 			select {
 			case <-c.housekeep_context.Done():
 				return
+			case packet := <-c.opts.ReplicaManagerClient.Channel():
+				c._inspectReplicaManagerClientPacket(c.housekeep_context, packet)
 			case <-ticker.C:
 				c._housekeep(c.housekeep_context)
 			}
@@ -62,8 +71,39 @@ func NewClusterLocalNodeManager(ctx context.Context, opts *ClusterNodeManagerOpt
 	return c, nil
 }
 
-func (c *nodeManager) slotId(slotId uint32) string {
+func (c *nodeManager) formatSlotId(slotId uint32) string {
 	return fmt.Sprintf("slot-%v", slotId)
+}
+
+func (c *nodeManager) parseSlotId(slotId string) (uint32, error) {
+	result := int(0)
+	if _, err := fmt.Sscanf(slotId, "slot-%d", &result); err != nil {
+		return 0, err
+	} else {
+		return uint32(result), nil
+	}
+}
+
+func (c *nodeManager) GetAllSlotsNodeIsMasterFor(ctx context.Context) (*[]uint32, error) {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+
+	result := []uint32{}
+
+	c.masterSlots.Visit(func(n int) bool {
+		result = append(result, uint32(n))
+
+		return false
+	})
+
+	return &result, nil
+}
+
+func (c *nodeManager) IsSlotMaster(ctx context.Context, slotId uint32) (bool, error) {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+
+	return c.masterSlots.Contains(int(slotId)), nil
 }
 
 func (c *nodeManager) GetSlotIdentifiers(ctx context.Context) (*[]uint32, error) {
@@ -86,7 +126,7 @@ func (c *nodeManager) RequestAddSlot(ctx context.Context, slotId uint32) (bool, 
 	defer c.mu.Unlock()
 
 	if !c.slots[slotId] {
-		if err := c.opts.ReplicaManagerClient.AddSlot(ctx, c.slotId(slotId)); err != nil {
+		if err := c.opts.ReplicaManagerClient.AddSlot(ctx, c.formatSlotId(slotId)); err != nil {
 			return false, err
 		}
 
@@ -103,7 +143,7 @@ func (c *nodeManager) RequestRemoveSlot(ctx context.Context, slotId uint32) (boo
 	if c.slots[slotId] {
 		if err := c.opts.ReplicaManagerClient.RemoveSlot(
 			ctx,
-			c.slotId(slotId),
+			c.formatSlotId(slotId),
 			int(c.opts.ReplicaBalancer.GetSlotReplicaCount()),
 			"moved"); err != nil {
 			// Minimum replica count is not satisfied, can't remove this slot yet
@@ -183,6 +223,79 @@ func (c *nodeManager) _housekeep(ctx context.Context) error {
 
 	if len(missingSlots) > 0 && c.opts.NotifyMissingSlotsHandler != nil {
 		c.opts.NotifyMissingSlotsHandler(ctx, c, &missingSlots)
+	}
+
+	return c._evalMasterSlots(ctx)
+}
+
+func (c *nodeManager) _inspectReplicaManagerClientPacket(ctx context.Context, packet *RedisReplicaManagerUpdate) error {
+	if packet.Event == "slot_master_change" {
+		if slotId, err := c.parseSlotId(packet.SlotID); err != nil {
+			return err
+		} else {
+			c.mu.Lock()
+			hasChange := false
+			hasSlot := c.masterSlots.Contains(int(slotId))
+
+			if !hasSlot && c.opts.ReplicaManagerClient.GetSiteID() == packet.SiteID {
+				c.masterSlots = c.masterSlots.Add(int(slotId))
+
+				hasChange = true
+			} else if hasSlot && c.opts.ReplicaManagerClient.GetSiteID() != packet.SiteID {
+				c.masterSlots = c.masterSlots.Delete(int(slotId))
+
+				hasChange = true
+			}
+			c.mu.Unlock()
+
+			if hasChange {
+				if c.opts.NotifyMasterSlotsChangedHandler != nil {
+					c.opts.NotifyMasterSlotsChangedHandler(ctx, c)
+				}
+			}
+		}
+	}
+
+	return nil
+}
+
+func (c *nodeManager) _evalMasterSlots(ctx context.Context) error {
+	if slots, err := c.opts.ReplicaManagerClient.GetSlots(ctx); err != nil {
+		return err
+	} else {
+		c.mu.Lock()
+
+		hasChange := false
+
+		for _, slot := range *slots {
+			isMaster := slot.Role == ROLE_MASTER
+			slotId, err := c.parseSlotId(slot.SlotID)
+
+			if err != nil {
+				// TODO: Log error
+				continue
+			}
+
+			hasSlot := c.masterSlots.Contains(int(slotId))
+
+			if !hasSlot && isMaster {
+				c.masterSlots = c.masterSlots.Add(int(slotId))
+
+				hasChange = true
+			} else if hasSlot && !isMaster {
+				c.masterSlots = c.masterSlots.Delete(int(slotId))
+
+				hasChange = true
+			}
+		}
+
+		c.mu.Unlock()
+
+		if hasChange {
+			if c.opts.NotifyMasterSlotsChangedHandler != nil {
+				c.opts.NotifyMasterSlotsChangedHandler(ctx, c)
+			}
+		}
 	}
 
 	return nil

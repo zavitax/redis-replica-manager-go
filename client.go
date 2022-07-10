@@ -29,10 +29,14 @@ type ReplicaManagerClient interface {
 
 	GetSlot(ctx context.Context, slotId string) (*RedisReplicaManagerSiteSlot, error)
 
+	GetSlots(ctx context.Context) (*[]*RedisReplicaManagerSiteSlot, error)
+
 	GetSiteID() string
 	GetShardID() uint32
 
 	GetAllKnownSites(ctx context.Context) (*[]*RedisReplicaManagerSite, error)
+
+	Channel() <-chan *RedisReplicaManagerUpdate
 
 	Close() error
 }
@@ -70,6 +74,8 @@ type redisReplicaManagerClient struct {
 	redis_subscriber_handle      *redis.PubSub
 	redis_subscriber_context     context.Context
 	redis_subscriber_cancel_func context.CancelFunc
+
+	subscriber_channel chan *RedisReplicaManagerUpdate
 
 	housekeep_context    context.Context
 	housekeep_cancelFunc context.CancelFunc
@@ -193,7 +199,16 @@ func NewRedisReplicaManagerClient(ctx context.Context, options *ReplicaManagerOp
 							Msg("Failed handling cluster update notification message")
 					}
 				}
+
+				if c.subscriber_channel != nil {
+					c.subscriber_channel <- &packet
+				}
 			}
+		}
+
+		if c.subscriber_channel != nil {
+			close(c.subscriber_channel)
+			c.subscriber_channel = nil
 		}
 	})(c.redis_subscriber_handle.Channel())
 
@@ -294,11 +309,29 @@ func (c *redisReplicaManagerClient) RemoveSlot(ctx context.Context, slotId strin
 	return c._removeSiteSlot(ctx, c.options.SiteID, slotId, minReplicaCount, reason)
 }
 
+func (c *redisReplicaManagerClient) GetSlots(ctx context.Context) (*[]*RedisReplicaManagerSiteSlot, error) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	return c._getSiteSlots(ctx, c.options.SiteID)
+}
+
 func (c *redisReplicaManagerClient) GetSlot(ctx context.Context, slotId string) (*RedisReplicaManagerSiteSlot, error) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
 	return c._getSlot(ctx, c.options.SiteID, slotId)
+}
+
+func (c *redisReplicaManagerClient) Channel() <-chan *RedisReplicaManagerUpdate {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	if c.subscriber_channel == nil {
+		c.subscriber_channel = make(chan *RedisReplicaManagerUpdate, 1)
+	}
+
+	return c.subscriber_channel
 }
 
 func (c *redisReplicaManagerClient) Close() error {
@@ -557,7 +590,7 @@ func (c *redisReplicaManagerClient) _getSlot(ctx context.Context, siteId string,
 	}
 }
 
-func (c *redisReplicaManagerClient) _getSiteSlots(ctx context.Context, siteId string) ([]*RedisReplicaManagerSiteSlot, error) {
+func (c *redisReplicaManagerClient) _getSiteSlots(ctx context.Context, siteId string) (*[]*RedisReplicaManagerSiteSlot, error) {
 	args := make(redisLuaScriptUtils.RedisScriptArguments)
 	args["argSiteID"] = siteId
 	args["argShardID"] = c.options.ShardID
@@ -590,7 +623,7 @@ func (c *redisReplicaManagerClient) _getSiteSlots(ctx context.Context, siteId st
 			}
 		}
 
-		return slots, nil
+		return &slots, nil
 	}
 }
 
@@ -598,7 +631,7 @@ func (c *redisReplicaManagerClient) _removeAllSiteSlots(ctx context.Context, sit
 	if slots, err := c._getSiteSlots(ctx, siteId); err != nil {
 		return err
 	} else {
-		for _, slot := range slots {
+		for _, slot := range *slots {
 			if removeErr := c._removeSiteSlot(ctx, slot.SiteID, slot.SlotID, 0, reason); removeErr != nil {
 				log.Error().
 					Str("SiteID", slot.SiteID).
