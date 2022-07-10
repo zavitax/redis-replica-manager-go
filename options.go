@@ -1,6 +1,7 @@
 package redisReplicaManager
 
 import (
+	"context"
 	"fmt"
 	"time"
 
@@ -16,11 +17,17 @@ type ReplicaManagerOptions struct {
 	ManualHeartbeat           bool
 }
 
+type ReplicaManagerClientProviderOptions struct {
+	SiteID                    string
+	UpdateNotificationHandler RedisReplicaManagerUpdateFunc
+}
+
+type ReplicaManagerClientProviderFunc func(ctx context.Context, opts *ReplicaManagerClientProviderOptions) (ReplicaManagerClient, error)
+
 type ReplicaRouterOptions struct {
-	TotalSlotsCount      int
-	InitialSitesCount    int
-	MinimumReplicaCount  int
-	ReplicaManagerClient *RedisReplicaManagerClient
+	TotalSlotsCount   int
+	SlotReplicaCount  int
+	MinimumShardCount int
 }
 
 var validationError = fmt.Errorf("All Options values must be correctly specified")
@@ -58,15 +65,11 @@ func (o *ReplicaRouterOptions) Validate() error {
 		return validationError
 	}
 
-	if o.InitialSitesCount < 1 {
+	if o.MinimumShardCount < 1 {
 		return validationError
 	}
 
-	if o.MinimumReplicaCount < 1 {
-		return validationError
-	}
-
-	if o.ReplicaManagerClient == nil {
+	if o.SlotReplicaCount < 1 {
 		return validationError
 	}
 

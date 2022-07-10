@@ -22,7 +22,7 @@ const (
 	ROLE_SLAVE  = "normal"
 )
 
-type RedisReplicaManagerClient interface {
+type ReplicaManagerClient interface {
 	AddSlot(ctx context.Context, slotId string) error
 	RemoveSlot(ctx context.Context, slotId string, minReplicaCount int, reason string) error
 
@@ -47,7 +47,7 @@ type RedisReplicaManagerSite struct {
 
 type RedisReplicaManagerUpdate struct {
 	Event  string `json:"event"`
-	SlotID string `json:"slot"`
+	SlotID string `json:"slot,omitempty"`
 	SiteID string `json:"site"`
 	Reason string `json:"reason"`
 	Role   string `json:"role,omitempty"`
@@ -56,7 +56,7 @@ type RedisReplicaManagerUpdate struct {
 type RedisReplicaManagerUpdateFunc func(ctx context.Context, update *RedisReplicaManagerUpdate) error
 
 type redisReplicaManagerClient struct {
-	RedisReplicaManagerClient
+	ReplicaManagerClient
 
 	mu sync.RWMutex
 
@@ -79,10 +79,12 @@ type redisReplicaManagerClient struct {
 	callGetSiteSlots               *redisLuaScriptUtils.CompiledRedisScript
 	callGetAllSiteIDs              *redisLuaScriptUtils.CompiledRedisScript
 
+	keyPubsubChannel string
+
 	redisKeys []*redisLuaScriptUtils.RedisKey
 }
 
-func NewRedisReplicaManagerClient(ctx context.Context, options *ReplicaManagerOptions) (RedisReplicaManagerClient, error) {
+func NewRedisReplicaManagerClient(ctx context.Context, options *ReplicaManagerOptions) (ReplicaManagerClient, error) {
 	if err := options.Validate(); err != nil {
 		return nil, err
 	}
@@ -91,10 +93,10 @@ func NewRedisReplicaManagerClient(ctx context.Context, options *ReplicaManagerOp
 
 	c.options = options
 
-	pubsubChannel := fmt.Sprintf("%s::global::pubsub", c.options.RedisKeyPrefix)
+	c.keyPubsubChannel = fmt.Sprintf("%s::global::pubsub", c.options.RedisKeyPrefix)
 
 	c.redisKeys = []*redisLuaScriptUtils.RedisKey{
-		redisLuaScriptUtils.NewStaticKey("keyPubsubChannel", pubsubChannel),
+		redisLuaScriptUtils.NewStaticKey("keyPubsubChannel", c.keyPubsubChannel),
 		redisLuaScriptUtils.NewStaticKey("keySiteSlotsHash", fmt.Sprintf("%s::global::sites-slots", c.options.RedisKeyPrefix)),
 		redisLuaScriptUtils.NewStaticKey("keySitesTimestamps", fmt.Sprintf("%s::global::sites-timestamps", c.options.RedisKeyPrefix)),
 		redisLuaScriptUtils.NewDynamicKey("keySlotSitesRolesHash", func(args *redisLuaScriptUtils.RedisScriptArguments) string {
@@ -159,7 +161,7 @@ func NewRedisReplicaManagerClient(ctx context.Context, options *ReplicaManagerOp
 
 	c.redis_subscriber = redis.NewClient(c.options.RedisOptions)
 	c.redis_subscriber_context, c.redis_subscriber_cancel_func = context.WithCancel(ctx)
-	c.redis_subscriber_handle = c.redis_subscriber.Subscribe(c.redis_subscriber_context, pubsubChannel)
+	c.redis_subscriber_handle = c.redis_subscriber.Subscribe(c.redis_subscriber_context, c.keyPubsubChannel)
 
 	go (func(subscriber_channel <-chan *redis.Message) {
 		// Listen for client timeout messages
@@ -206,7 +208,7 @@ func NewRedisReplicaManagerClient(ctx context.Context, options *ReplicaManagerOp
 
 		return nil, err
 	} else {
-		if err := c.redis.Publish(ctx, pubsubChannel, string(init_json)).Err(); err != nil {
+		if err := c.redis.Publish(ctx, c.keyPubsubChannel, string(init_json)).Err(); err != nil {
 			c.redis_subscriber_cancel_func()
 			c.redis_subscriber_handle.Close()
 
@@ -292,6 +294,16 @@ func (c *redisReplicaManagerClient) Close() error {
 
 	c.housekeep_cancelFunc()
 
+	shutdown_packet := RedisReplicaManagerUpdate{
+		Event:  "site_shutdown",
+		SiteID: c.options.SiteID,
+		SlotID: "",
+		Role:   "",
+		Reason: "shutdown",
+	}
+	shutdown_json, _ := json.Marshal(shutdown_packet)
+	c.redis.Publish(context.Background(), c.keyPubsubChannel, string(shutdown_json)).Result()
+
 	err0 := c._removeAllSiteSlots(context.Background(), c.options.SiteID, "shutdown")
 
 	// time.Sleep(time.Second)
@@ -359,6 +371,16 @@ func (c *redisReplicaManagerClient) _removeTimedOutSites(ctx context.Context) er
 		for _, site := range sites {
 			siteId := site.([]interface{})[0].(string)
 			slots := site.([]interface{})[1]
+
+			shutdown_packet := RedisReplicaManagerUpdate{
+				Event:  "site_shutdown",
+				SiteID: siteId,
+				SlotID: "",
+				Role:   "",
+				Reason: "timeout",
+			}
+			shutdown_json, _ := json.Marshal(shutdown_packet)
+			c.redis.Publish(ctx, c.keyPubsubChannel, string(shutdown_json)).Result()
 
 			for _, slotId := range slots.([]interface{}) {
 				c._removeSiteSlot(ctx, siteId, slotId.(string), 0, "timeout")

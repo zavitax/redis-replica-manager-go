@@ -39,7 +39,7 @@ func createReplicaManagerOptions(
 	return result
 }
 
-func createReplicaManagerClient(options *redisReplicaManager.ReplicaManagerOptions) (redisReplicaManager.RedisReplicaManagerClient, error) {
+func createReplicaManagerClient(options *redisReplicaManager.ReplicaManagerOptions) (redisReplicaManager.ReplicaManagerClient, error) {
 	// setup(options)
 
 	return redisReplicaManager.NewRedisReplicaManagerClient(context.TODO(), options)
