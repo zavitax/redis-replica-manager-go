@@ -63,49 +63,49 @@ func main() {
 	totalShards := 8 * totalReplicas
 	totalSlots := 256
 
-	router, _ := redisReplicaManager.NewReplicaBalancer(ctx, &redisReplicaManager.ReplicaBalancerOptions{
+	balancer, _ := redisReplicaManager.NewReplicaBalancer(ctx, &redisReplicaManager.ReplicaBalancerOptions{
 		TotalSlotsCount:   totalSlots,
 		MinimumShardCount: totalShards / totalReplicas,
 		SlotReplicaCount:  totalReplicas,
 	})
 
 	for shardId := uint32(0); shardId < uint32(totalShards); shardId++ {
-		router.AddShard(ctx, shardId)
+		balancer.AddShard(ctx, shardId)
 	}
 
 	fmt.Printf("All shards\n")
-	prev := printShards(ctx, router, nil)
+	prev := printShards(ctx, balancer, nil)
 
 	fmt.Printf("Removed some shards from middle\n")
 
-	router.RemoveShard(ctx, 2)
-	router.RemoveShard(ctx, 3)
+	balancer.RemoveShard(ctx, 2)
+	balancer.RemoveShard(ctx, 3)
 
-	prev = printShards(ctx, router, prev)
+	prev = printShards(ctx, balancer, prev)
 
 	fmt.Printf("Removed some shards from end\n")
 
-	router.AddShard(ctx, 2)
-	router.AddShard(ctx, 3)
+	balancer.AddShard(ctx, 2)
+	balancer.AddShard(ctx, 3)
 
-	router.RemoveShard(ctx, 5)
+	balancer.RemoveShard(ctx, 5)
 
-	prev = printShards(ctx, router, prev)
+	prev = printShards(ctx, balancer, prev)
 
 	fmt.Printf("Returned some shards to end\n")
 
-	router.AddShard(ctx, 5)
+	balancer.AddShard(ctx, 5)
 
-	prev = printShards(ctx, router, prev)
+	prev = printShards(ctx, balancer, prev)
 
 	fmt.Printf("Added shards after end\n")
 
-	router.AddShard(ctx, 16)
-	router.AddShard(ctx, 17)
-	router.AddShard(ctx, 18)
-	router.AddShard(ctx, 19)
-	router.AddShard(ctx, 20)
-	router.AddShard(ctx, 21)
+	balancer.AddShard(ctx, 16)
+	balancer.AddShard(ctx, 17)
+	balancer.AddShard(ctx, 18)
+	balancer.AddShard(ctx, 19)
+	balancer.AddShard(ctx, 20)
+	balancer.AddShard(ctx, 21)
 
-	prev = printShards(ctx, router, prev)
+	prev = printShards(ctx, balancer, prev)
 }
