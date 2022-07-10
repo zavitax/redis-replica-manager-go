@@ -40,7 +40,7 @@ func printShards(ctx context.Context, router redisReplicaManager.ReplicaBalancer
 			distance = levenshtein.DistanceForStrings(source, dest, levenshtein.DefaultOptions)
 		}
 
-		fmt.Printf("Shard %v -> Slots: %v -> len: %v -> changes: %v\n", shardId, slots, len(*slots), distance)
+		fmt.Printf("Shard %v -> Slots: %v -> changes: %v\n", shardId, len(*slots), distance)
 
 		for _, slot := range *slots {
 			slotsMap[slot] = true
@@ -63,7 +63,7 @@ func main() {
 	totalShards := 8 * totalReplicas
 	totalSlots := 256
 
-	router, _ := redisReplicaManager.NewReplicaBalancer(ctx, &redisReplicaManager.ReplicaRouterOptions{
+	router, _ := redisReplicaManager.NewReplicaBalancer(ctx, &redisReplicaManager.ReplicaBalancerOptions{
 		TotalSlotsCount:   totalSlots,
 		MinimumShardCount: totalShards / totalReplicas,
 		SlotReplicaCount:  totalReplicas,
@@ -83,31 +83,29 @@ func main() {
 
 	prev = printShards(ctx, router, prev)
 
-	/*
-		fmt.Printf("Removed some shards from end\n")
+	fmt.Printf("Removed some shards from end\n")
 
-		router.AddShard(ctx, 2)
-		router.AddShard(ctx, 3)
+	router.AddShard(ctx, 2)
+	router.AddShard(ctx, 3)
 
-		router.RemoveShard(ctx, 5)
+	router.RemoveShard(ctx, 5)
 
-		prev = printShards(ctx, router, prev)
+	prev = printShards(ctx, router, prev)
 
-		fmt.Printf("Returned some shards to end\n")
+	fmt.Printf("Returned some shards to end\n")
 
-		router.AddShard(ctx, 5)
+	router.AddShard(ctx, 5)
 
-		prev = printShards(ctx, router, prev)
+	prev = printShards(ctx, router, prev)
 
-		fmt.Printf("Added shards after end\n")
+	fmt.Printf("Added shards after end\n")
 
-		router.AddShard(ctx, 16)
-		router.AddShard(ctx, 17)
-		router.AddShard(ctx, 18)
-		router.AddShard(ctx, 19)
-		router.AddShard(ctx, 20)
-		router.AddShard(ctx, 21)
+	router.AddShard(ctx, 16)
+	router.AddShard(ctx, 17)
+	router.AddShard(ctx, 18)
+	router.AddShard(ctx, 19)
+	router.AddShard(ctx, 20)
+	router.AddShard(ctx, 21)
 
-		prev = printShards(ctx, router, prev)
-	*/
+	prev = printShards(ctx, router, prev)
 }

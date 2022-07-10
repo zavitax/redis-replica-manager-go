@@ -26,13 +26,13 @@ type shardSlotBalancer struct {
 	ReplicaBalancer
 
 	mu   sync.RWMutex
-	opts *ReplicaRouterOptions
+	opts *ReplicaBalancerOptions
 
 	shards           map[uint32]bool
 	totalShardsCount uint32
 }
 
-func NewReplicaBalancer(ctx context.Context, opts *ReplicaRouterOptions) (ReplicaBalancer, error) {
+func NewReplicaBalancer(ctx context.Context, opts *ReplicaBalancerOptions) (ReplicaBalancer, error) {
 	if err := opts.Validate(); err != nil {
 		return nil, err
 	}
@@ -54,8 +54,8 @@ func (c *shardSlotBalancer) GetTotalSlotsCount() uint32 {
 }
 
 func (c *shardSlotBalancer) GetTotalShardsCount() uint32 {
-	c.mu.Lock()
-	defer c.mu.Unlock()
+	c.mu.RLock()
+	defer c.mu.RUnlock()
 
 	return c.totalShardsCount
 }

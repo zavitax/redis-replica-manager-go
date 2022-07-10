@@ -23,8 +23,7 @@ type ReplicaManagerClientProviderOptions struct {
 }
 
 type ReplicaManagerClientProviderFunc func(ctx context.Context, opts *ReplicaManagerClientProviderOptions) (ReplicaManagerClient, error)
-
-type ReplicaRouterOptions struct {
+type ReplicaBalancerOptions struct {
 	TotalSlotsCount   int
 	SlotReplicaCount  int
 	MinimumShardCount int
@@ -56,7 +55,7 @@ func (o *ReplicaManagerOptions) Validate() error {
 	return nil
 }
 
-func (o *ReplicaRouterOptions) Validate() error {
+func (o *ReplicaBalancerOptions) Validate() error {
 	if o == nil {
 		return validationError
 	}
