@@ -14,6 +14,8 @@ type ReplicaBalancer interface {
 	AddShard(ctx context.Context, shardId uint32) error
 	RemoveShard(ctx context.Context, shardId uint32) error
 
+	GetShardIdentifiers() *[]uint32
+
 	GetTargetSlotsForShard(ctx context.Context, shardId uint32) *[]uint32
 	GetSlotShards(ctx context.Context, slotId uint32) *[]uint32
 
@@ -43,6 +45,21 @@ func NewReplicaBalancer(ctx context.Context, opts *ReplicaBalancerOptions) (Repl
 	}
 
 	return c, nil
+}
+
+func (c *shardSlotBalancer) GetShardIdentifiers() *[]uint32 {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+
+	result := make([]uint32, len(c.shards))
+	index := 0
+
+	for shardId, _ := range c.shards {
+		result[index] = shardId
+		index++
+	}
+
+	return &result
 }
 
 func (c *shardSlotBalancer) GetSlotReplicaCount() uint32 {

@@ -3,9 +3,9 @@ package redisReplicaManager_test
 import (
 	"context"
 	"fmt"
+	"sync"
 	"testing"
 	"time"
-	"sync"
 
 	//"github.com/rs/zerolog"
 
@@ -31,9 +31,9 @@ func createReplicaManagerOptions(
 ) *redisReplicaManager.ReplicaManagerOptions {
 	result := &redisReplicaManager.ReplicaManagerOptions{
 		RedisOptions:   redisOptions,
-		SiteTimeout:  time.Second * 5,
+		SiteTimeout:    time.Second * 5,
 		RedisKeyPrefix: fmt.Sprintf("{test-redis-replica-manager}::%v", testId),
-		SiteID: siteId,
+		SiteID:         siteId,
 	}
 
 	return result
@@ -172,7 +172,7 @@ func TestSiteTimeout(t *testing.T) {
 
 	expectedTimedOutSlots := 2
 
-	for i := 0; i < 4 * 5 && eventCount["slot_site_removed:timeout"] != expectedTimedOutSlots; i++ {
+	for i := 0; i < 4*5 && eventCount["slot_site_removed:timeout"] != expectedTimedOutSlots; i++ {
 		time.Sleep(time.Second / 4)
 	}
 
@@ -201,9 +201,9 @@ func TestGetAllKnownSites(t *testing.T) {
 	if sites, err := client1.GetAllKnownSites(ctx); err != nil {
 		t.Error(err)
 	} else {
-		curr := len(sites)
+		curr := len(*sites)
 		expected := 2
-	
+
 		if curr != expected {
 			t.Errorf("expected %v, got %v", expected, curr)
 		}
