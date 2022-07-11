@@ -32,6 +32,8 @@ type shardSlotBalancer struct {
 
 	shards           map[uint32]bool
 	totalShardsCount uint32
+
+	shardsSlotsMatrixCache *[]*[]uint32
 }
 
 func NewReplicaBalancer(ctx context.Context, opts *ReplicaBalancerOptions) (ReplicaBalancer, error) {
@@ -85,6 +87,8 @@ func (c *shardSlotBalancer) AddShard(ctx context.Context, shardId uint32) error 
 		return fmt.Errorf("Duplicate shard: %v", shardId)
 	}
 
+	c.shardsSlotsMatrixCache = nil
+
 	c.shards[shardId] = true
 
 	c.totalShardsCount = uint32(0)
@@ -105,6 +109,8 @@ func (c *shardSlotBalancer) RemoveShard(ctx context.Context, shardId uint32) err
 	if !c.shards[shardId] {
 		return fmt.Errorf("Unknown shard: %v", shardId)
 	}
+
+	c.shardsSlotsMatrixCache = nil
 
 	delete(c.shards, shardId)
 
@@ -135,9 +141,10 @@ func (c *shardSlotBalancer) GetSlotShards(ctx context.Context, slotId uint32) *[
 
 	matrix := c.getShardSlotsMatrix()
 
-	slotShardsMap := c.getSlotShards(matrix)
+	//slotShardsMap := c.getAllSlotsShardsMap(matrix)
 
-	shards := (*slotShardsMap)[slotId]
+	shards := (*matrix)[slotId]
+	//shards := (*slotShardsMap)[slotId]
 
 	return shards
 }
@@ -158,7 +165,7 @@ func (c *shardSlotBalancer) GetTargetSlotsForShard(ctx context.Context, shardId 
 	return slots
 }
 
-func (c *shardSlotBalancer) getSlotShards(matrix *[]*[]uint32) *map[uint32]*[]uint32 {
+func (c *shardSlotBalancer) getAllSlotsShardsMap(matrix *[]*[]uint32) *map[uint32]*[]uint32 {
 	result := make(map[uint32]*[]uint32)
 
 	for slotId, shards := range *matrix {
@@ -188,6 +195,10 @@ type slotShardHash struct {
 }
 
 func (c *shardSlotBalancer) getShardSlotsMatrix() *[]*[]uint32 {
+	if c.shardsSlotsMatrixCache != nil {
+		return c.shardsSlotsMatrixCache
+	}
+
 	result := make([]*[]uint32, c.opts.TotalSlotsCount)
 
 	for slotId := uint32(0); slotId < uint32(c.opts.TotalSlotsCount); slotId++ {
@@ -204,14 +215,20 @@ func (c *shardSlotBalancer) getShardSlotsMatrix() *[]*[]uint32 {
 			return list[i].hash < list[j].hash
 		})
 
-		shards := make([]uint32, len(list))
+		numShards := len(list)
+		if numShards > c.opts.SlotReplicaCount {
+			numShards = c.opts.SlotReplicaCount
+		}
+		shards := make([]uint32, numShards)
 
-		for index, shard := range list {
+		for index, shard := range list[:numShards] {
 			shards[index] = shard.shardId
 		}
 
 		result[slotId] = &shards
 	}
+
+	c.shardsSlotsMatrixCache = &result
 
 	return &result
 }

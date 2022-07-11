@@ -28,7 +28,6 @@ type ReplicaManagerClient interface {
 	RemoveSlot(ctx context.Context, slotId string, minReplicaCount int, reason string) error
 
 	GetSlot(ctx context.Context, slotId string) (*RedisReplicaManagerSiteSlot, error)
-
 	GetSlots(ctx context.Context) (*[]*RedisReplicaManagerSiteSlot, error)
 
 	GetSiteID() string

@@ -139,7 +139,19 @@ func main() {
 	fmt.Printf("manager2: %v\n", len(*slots2))
 	fmt.Printf("sum: %v\n", len(*slots1)+len(*slots2))
 
-	time.Sleep(time.Second * 5)
+	fmt.Printf("m1: shards for slot 1: %v\n", manager1.GetSlotShards(ctx, 1))
+	fmt.Printf("m2: shards for slot 1: %v\n", manager2.GetSlotShards(ctx, 1))
+
+	fmt.Printf("m1: shards for slot 497: %v\n", manager1.GetSlotShards(ctx, 497))
+	fmt.Printf("m2: shards for slot 497: %v\n", manager2.GetSlotShards(ctx, 497))
+
+	fmt.Printf("m1: master shard for slot 1: %v\n", manager1.GetSlotMasterShard(ctx, 1))
+	fmt.Printf("m2: master shard for slot 1: %v\n", manager2.GetSlotMasterShard(ctx, 1))
+
+	fmt.Printf("m1: master shard for slot 497: %v\n", manager1.GetSlotMasterShard(ctx, 497))
+	fmt.Printf("m2: master shard for slot 497: %v\n", manager2.GetSlotMasterShard(ctx, 497))
+
+	time.Sleep(time.Second * 30)
 
 	manager1.Close()
 	manager2.Close()
