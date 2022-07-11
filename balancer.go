@@ -22,6 +22,8 @@ type ReplicaBalancer interface {
 	GetTotalShardsCount() uint32
 	GetTotalSlotsCount() uint32
 	GetSlotReplicaCount() uint32
+
+	GetSlotForObject(objectId string) uint32
 }
 
 type shardSlotBalancer struct {
@@ -47,6 +49,16 @@ func NewReplicaBalancer(ctx context.Context, opts *ReplicaBalancerOptions) (Repl
 	}
 
 	return c, nil
+}
+
+func (c *shardSlotBalancer) GetSlotForObject(objectId string) uint32 {
+	hasher := md5.New()
+	hasher.Write([]byte(objectId))
+
+	hex := hex.EncodeToString(hasher.Sum(nil))
+	id, _ := strconv.ParseInt(hex[:4], 16, 0)
+
+	return uint32(id) % uint32(c.GetTotalSlotsCount())
 }
 
 func (c *shardSlotBalancer) GetShardIdentifiers() *[]uint32 {

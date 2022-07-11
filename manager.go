@@ -22,6 +22,8 @@ type ClusterLocalNodeManager interface {
 
 	GetSlotIdentifiers(ctx context.Context) (*[]uint32, error)
 
+	GetSlotForObject(objectId string) uint32
+
 	GetSlotShardsRouteTable(ctx context.Context, slotId uint32) *[]*RouteTableEntry
 	GetSlotMasterShardRoute(ctx context.Context, slotId uint32) *RouteTableEntry
 
@@ -110,6 +112,13 @@ func (c *nodeManager) Close() error {
 	c.slots = make(map[uint32]bool)
 
 	return c.opts.ReplicaManagerClient.Close()
+}
+
+func (c *nodeManager) GetSlotForObject(objectId string) uint32 {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+
+	return c.opts.ReplicaBalancer.GetSlotForObject(objectId)
 }
 
 func (c *nodeManager) GetSlotShardsRouteTable(ctx context.Context, slotId uint32) *[]*RouteTableEntry {

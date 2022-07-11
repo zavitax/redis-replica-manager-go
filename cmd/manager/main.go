@@ -154,6 +154,11 @@ func main() {
 	fmt.Printf("m1: master shard for slot 497: %v\n", manager1.GetSlotMasterShardRoute(ctx, 497))
 	fmt.Printf("m2: master shard for slot 497: %v\n", manager2.GetSlotMasterShardRoute(ctx, 497))
 
+	fmt.Printf("m1: slot for object abcdefg: %v\n", manager1.GetSlotForObject("abcdefg"))
+	fmt.Printf("m2: slot for object abcdefg: %v\n", manager2.GetSlotForObject("abcdefg"))
+
+	time.Sleep(time.Second)
+
 	manager1.Close()
 	manager2.Close()
 }
