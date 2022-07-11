@@ -46,9 +46,9 @@ The library maintains a routing table that maps _slots_ to a list of _shards_ wh
 
 # Rendezvous hashing
 
-Rendezvous or highest random weight (HRW) hashing is an algorithm that allows clients to achieve distributed agreement on a set of {\displaystyle k}k options out of a possible set of {\displaystyle n}n options. A typical application is when clients need to agree on which sites (or proxies) objects are assigned to.
+Rendezvous or highest random weight (HRW) hashing is an algorithm that allows clients to achieve distributed agreement on a set of _k_ options out of a possible set of _n_ options. A typical application is when clients need to agree on which sites (or proxies) objects are assigned to.
 
-Rendezvous hashing is both much simpler and more general than consistent hashing, which becomes a special case (for {\displaystyle k=1}k=1) of rendezvous hashing.
+Rendezvous hashing is both much simpler and more general than consistent hashing, which becomes a special case (for _k_=1) of rendezvous hashing.
 
 More information:
 https://en.wikipedia.org/wiki/Rendezvous_hashing
