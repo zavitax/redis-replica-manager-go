@@ -40,6 +40,10 @@ The application determines when migration has completed, and notifies the librar
 
 A heartbeat and a watchdog timer guarantee that faulting shards are removed from the cluster.
 
+## Dynamic Routing
+
+The library maintains a routing table that maps _slots_ to a list of _shards_ which is used to route requests for _slots_ to the right _shard_.
+
 # Rendezvous hashing
 
 Rendezvous or highest random weight (HRW) hashing is an algorithm that allows clients to achieve distributed agreement on a set of {\displaystyle k}k options out of a possible set of {\displaystyle n}n options. A typical application is when clients need to agree on which sites (or proxies) objects are assigned to.
@@ -110,20 +114,25 @@ func main() {
 		ReplicaBalancer:      balancer1,
 		RefreshInterval:      time.Second * 15,
 		NotifyMissingSlotsHandler: func(ctx context.Context, manager redisReplicaManager.ClusterLocalNodeManager, slots *[]uint32) error {
-			fmt.Printf("m1: missing slots: %v\n", len(*slots))
+			fmt.Printf("m1: missing slots to be added to local shard: %v\n", len(*slots))
 
 			for _, slotId := range *slots {
+        // Notify the cluster that the slot was added to the local shard.
+        // This should happen only when the slot migration has fully and successfully completed.
 				manager.RequestAddSlot(ctx, slotId)
 			}
 
 			return nil
 		},
 		NotifyRedundantSlotsHandler: func(ctx context.Context, manager redisReplicaManager.ClusterLocalNodeManager, slots *[]uint32) error {
-			fmt.Printf("m1: redundant slots: %v\n", len(*slots))
+			fmt.Printf("m1: redundant slots to be removed from local shard: %v\n", len(*slots))
 
 			for _, slotId := range *slots {
+        // Ask the cluster manager if we are allower to remove a redundant slot
+        // (if it satisfies minimum replica count on other shards)
 				if allowed, _ := manager.RequestRemoveSlot(ctx, slotId); allowed {
-					fmt.Printf("m1: allowed to remove slot: %v\n", allowed)
+          // Slot has been approved for removal by the cluater (and has bee removed from the routing table)
+					fmt.Printf("m1: allowed to remove slot from local shard: %v\n", allowed)
 				}
 			}
 
