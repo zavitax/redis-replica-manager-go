@@ -19,8 +19,8 @@ func currentTimestamp() int64 {
 }
 
 const (
-	ROLE_MASTER = "master"
-	ROLE_SLAVE  = "normal"
+	ROLE_PRIMARY   = "primary"
+	ROLE_SECONDARY = "secondary"
 )
 
 type ReplicaManagerClient interface {
@@ -458,9 +458,9 @@ func (c *redisReplicaManagerClient) _removeSiteSlot(ctx context.Context, siteId 
 
 		removedSitesCount := result[0].(int64)
 		newReplicaCount := result[1].(int64)
-		newMasterSiteID := ""
+		newPrimarySiteID := ""
 		if len(result) > 2 && result[2] != nil {
-			newMasterSiteID = result[2].(string)
+			newPrimarySiteID = result[2].(string)
 		}
 
 		log.Info().
@@ -468,7 +468,7 @@ func (c *redisReplicaManagerClient) _removeSiteSlot(ctx context.Context, siteId 
 			Str("SlotID", slotId).
 			Int64("removedSitesCount", removedSitesCount).
 			Int64("newReplicaCount", newReplicaCount).
-			Str("newMasterSiteID", newMasterSiteID).
+			Str("newPrimarySiteID", newPrimarySiteID).
 			Str("action", "request_remove_site_slot").
 			Str("reason", reason).
 			Msg("Requested slot to be removed from site")
@@ -607,7 +607,7 @@ func (c *redisReplicaManagerClient) _getSiteSlots(ctx context.Context, siteId st
 		for slotIndex, slot := range result {
 			parts := slot.([]interface{})
 
-			role := ROLE_SLAVE
+			role := ROLE_SECONDARY
 			if parts[1] != nil {
 				role = parts[1].(string)
 			}

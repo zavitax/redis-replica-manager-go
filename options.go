@@ -37,9 +37,9 @@ type ClusterNodeManagerOptions struct {
 
 	RefreshInterval time.Duration
 
-	NotifyMissingSlotsHandler       func(ctx context.Context, manager ClusterLocalNodeManager, slots *[]uint32) error
-	NotifyRedundantSlotsHandler     func(ctx context.Context, manager ClusterLocalNodeManager, slots *[]uint32) error
-	NotifyMasterSlotsChangedHandler func(ctx context.Context, manager ClusterLocalNodeManager) error
+	NotifyMissingSlotsHandler        func(ctx context.Context, manager ClusterLocalNodeManager, slots *[]uint32) error
+	NotifyRedundantSlotsHandler      func(ctx context.Context, manager ClusterLocalNodeManager, slots *[]uint32) error
+	NotifyPrimarySlotsChangedHandler func(ctx context.Context, manager ClusterLocalNodeManager) error
 }
 
 var validationError = fmt.Errorf("All Options values must be correctly specified")

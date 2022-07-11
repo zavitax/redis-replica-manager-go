@@ -120,10 +120,10 @@ func TestManager(t *testing.T) {
 
 			return nil
 		},
-		NotifyMasterSlotsChangedHandler: func(ctx context.Context, manager redisReplicaManager.ClusterLocalNodeManager) error {
-			slots, _ := manager.GetAllSlotsLocalNodeIsMasterFor(ctx)
+		NotifyPrimarySlotsChangedHandler: func(ctx context.Context, manager redisReplicaManager.ClusterLocalNodeManager) error {
+			slots, _ := manager.GetAllSlotsLocalNodeIsPrimaryFor(ctx)
 
-			fmt.Printf("m1: master slots changed: %v\n", len(*slots))
+			fmt.Printf("m1: primary slots changed: %v\n", len(*slots))
 
 			return nil
 		},
@@ -157,10 +157,10 @@ func TestManager(t *testing.T) {
 
 			return nil
 		},
-		NotifyMasterSlotsChangedHandler: func(ctx context.Context, manager redisReplicaManager.ClusterLocalNodeManager) error {
-			slots, _ := manager.GetAllSlotsLocalNodeIsMasterFor(ctx)
+		NotifyPrimarySlotsChangedHandler: func(ctx context.Context, manager redisReplicaManager.ClusterLocalNodeManager) error {
+			slots, _ := manager.GetAllSlotsLocalNodeIsPrimaryFor(ctx)
 
-			fmt.Printf("m2: master slots changed: %v\n", len(*slots))
+			fmt.Printf("m2: primary slots changed: %v\n", len(*slots))
 
 			return nil
 		},
@@ -192,11 +192,11 @@ func TestManager(t *testing.T) {
 	fmt.Printf("m1: shards for slot 497: %v\n", manager1.GetSlotShardsRouteTable(ctx, 497))
 	fmt.Printf("m2: shards for slot 497: %v\n", manager2.GetSlotShardsRouteTable(ctx, 497))
 
-	fmt.Printf("m1: master shard for slot 1: %v\n", manager1.GetSlotMasterShardRoute(ctx, 1))
-	fmt.Printf("m2: master shard for slot 1: %v\n", manager2.GetSlotMasterShardRoute(ctx, 1))
+	fmt.Printf("m1: primary shard for slot 1: %v\n", manager1.GetSlotPrimaryShardRoute(ctx, 1))
+	fmt.Printf("m2: primary shard for slot 1: %v\n", manager2.GetSlotPrimaryShardRoute(ctx, 1))
 
-	fmt.Printf("m1: master shard for slot 497: %v\n", manager1.GetSlotMasterShardRoute(ctx, 497))
-	fmt.Printf("m2: master shard for slot 497: %v\n", manager2.GetSlotMasterShardRoute(ctx, 497))
+	fmt.Printf("m1: primary shard for slot 497: %v\n", manager1.GetSlotPrimaryShardRoute(ctx, 497))
+	fmt.Printf("m2: primary shard for slot 497: %v\n", manager2.GetSlotPrimaryShardRoute(ctx, 497))
 
 	fmt.Printf("m1: slot for object abcdefg: %v\n", manager1.GetSlotForObject("abcdefg"))
 	fmt.Printf("m2: slot for object abcdefg: %v\n", manager2.GetSlotForObject("abcdefg"))

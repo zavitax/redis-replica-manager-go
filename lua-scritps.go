@@ -12,15 +12,15 @@ var scriptAddSlotSite = redisLuaScriptUtils.NewRedisScript(
 		
 		local existingSiteRole = redis.call('HGET', keySlotSitesRolesHash, argSiteID)
 		
-		-- Check if there are any masters
-		local newSiteRole = 'master';
+		-- Check if there are any primarys
+		local newSiteRole = 'primary';
 		
-		if existingSiteRole ~= 'master' then
+		if existingSiteRole ~= 'primary' then
 			local sitesRolesValues = redis.call('HVALS', keySlotSitesRolesHash);
 		
 			for i, slotRole in ipairs(sitesRolesValues) do
-				if slotRole == 'master' then
-					newSiteRole = 'normal';
+				if slotRole == 'primary' then
+					newSiteRole = 'secondary';
 					break;
 				end
 			end
@@ -44,10 +44,10 @@ var scriptAddSlotSite = redisLuaScriptUtils.NewRedisScript(
 						role = newSiteRole
 			}));
 		
-			if newSiteRole == 'master' then
-				-- Announce slot master changed
+			if newSiteRole == 'primary' then
+				-- Announce slot primary changed
 				redis.call('PUBLISH', keyPubsubChannel, cjson.encode({
-							event = 'slot_master_change',
+							event = 'slot_primary_change',
 							slot = argSlotID,
 							site = argSiteID,
 							reason = 'slot_site_added'
@@ -80,7 +80,7 @@ var scriptConditionalRemoveSlotSite = redisLuaScriptUtils.NewRedisScript(
 		-- Get new replica count after site was removed
 		local newReplicaCount = tonumber(redis.call('HLEN', keySlotSitesRolesHash));
 
-		-- Get remaining sites Roles to figure out if a new master is required
+		-- Get remaining sites Roles to figure out if a new primary is required
 		local remainingSites = redis.call('HKEYS', keySlotSitesRolesHash)
 		
 		if remainingSites == nil then
@@ -98,21 +98,21 @@ var scriptConditionalRemoveSlotSite = redisLuaScriptUtils.NewRedisScript(
 			}));
 		end
 		
-		if removedSiteRole == 'master' and #remainingSites > 0 then
-			-- The site we removed was the master for this slot, select a new master
-			local newMasterSiteID = remainingSites[1]
+		if removedSiteRole == 'primary' and #remainingSites > 0 then
+			-- The site we removed was the primary for this slot, select a new primary
+			local newPrimarySiteID = remainingSites[1]
 		
-			redis.call('HSET', keySlotSitesRolesHash, newMasterSiteID, 'master');
+			redis.call('HSET', keySlotSitesRolesHash, newPrimarySiteID, 'primary');
 
-			-- Announce slot master changed
+			-- Announce slot primary changed
 			redis.call('PUBLISH', keyPubsubChannel, cjson.encode({
-						event = 'slot_master_change',
+						event = 'slot_primary_change',
 						slot = argSlotID,
-						site = newMasterSiteID,
+						site = newPrimarySiteID,
 						reason = 'slot_site_removed'
 			}));
 
-			return { removedSitesCount, newReplicaCount, newMasterSiteID }
+			return { removedSitesCount, newReplicaCount, newPrimarySiteID }
 		else
 			return { removedSitesCount, newReplicaCount, nil }
 		end

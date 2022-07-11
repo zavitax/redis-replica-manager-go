@@ -56,15 +56,15 @@ func TestConnectDisconnect(t *testing.T) {
 	client.Close()
 }
 
-func TestMasterChange(t *testing.T) {
+func TestPrimaryChange(t *testing.T) {
 	// zerolog.SetGlobalLevel(zerolog.Disabled)
 
 	ctx := context.Background()
 
 	setup()
 
-	options1 := createReplicaManagerOptions("TestMasterChange", "site1")
-	options2 := createReplicaManagerOptions("TestMasterChange", "site2")
+	options1 := createReplicaManagerOptions("TestPrimaryChange", "site1")
+	options2 := createReplicaManagerOptions("TestPrimaryChange", "site2")
 
 	var mutex sync.Mutex
 
@@ -104,7 +104,7 @@ func TestMasterChange(t *testing.T) {
 
 	client1.Close()
 
-	curr := eventCount["slot_master_change"]
+	curr := eventCount["slot_primary_change"]
 	expected := 5
 
 	if curr != expected {

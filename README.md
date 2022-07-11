@@ -8,9 +8,9 @@ This library allows building distributed applications where partitioning of work
 
 It achieves it's goal by partitioning work into _slots_ and assigning each shard (cluster node) a set of _slots_ to be responsible for.
 
-A _slot_ can be assigned to more than one shard (replication scenario), yet only one shard will be designated a _master_ for each _slot_.
+A _slot_ can be assigned to more than one shard (replication scenario), yet only one shard will be designated a _primary_ for each _slot_.
 
-The differentiation between a _master_ and a _normal_ shard role for a _slot_ is determined by the application.
+The differentiation between a _primary_ and a _secondary_ shard role for a _slot_ is determined by the application.
 
 Assignment of _slots_ to _shards_ is determined by Rendezvous hashing (see below for more details).
 
@@ -138,10 +138,10 @@ func main() {
 
 			return nil
 		},
-		NotifyMasterSlotsChangedHandler: func(ctx context.Context, manager redisReplicaManager.ClusterLocalNodeManager) error {
-			slots, _ := manager.GetAllSlotsLocalNodeIsMasterFor(ctx)
+		NotifyPrimarySlotsChangedHandler: func(ctx context.Context, manager redisReplicaManager.ClusterLocalNodeManager) error {
+			slots, _ := manager.GetAllSlotsLocalNodeIsPrimaryFor(ctx)
 
-			fmt.Printf("m1: master slots changed: %v\n", len(*slots))
+			fmt.Printf("m1: primary slots changed: %v\n", len(*slots))
 
 			return nil
 		},
@@ -154,8 +154,8 @@ func main() {
 	fmt.Printf("m1: shards for slot 1: %v\n", manager1.GetSlotShardsRouteTable(ctx, 1))
 	fmt.Printf("m1: shards for slot 497: %v\n", manager1.GetSlotShardsRouteTable(ctx, 497))
 
-	fmt.Printf("m1: master shard for slot 1: %v\n", manager1.GetSlotMasterShardRoute(ctx, 1))
-	fmt.Printf("m1: master shard for slot 497: %v\n", manager1.GetSlotMasterShardRoute(ctx, 497))
+	fmt.Printf("m1: primary shard for slot 1: %v\n", manager1.GetSlotPrimaryShardRoute(ctx, 1))
+	fmt.Printf("m1: primary shard for slot 497: %v\n", manager1.GetSlotPrimaryShardRoute(ctx, 497))
 
 	fmt.Printf("m1: slot for object abcdefg: %v\n", manager1.GetSlotForObject("abcdefg"))
 
