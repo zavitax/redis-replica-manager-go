@@ -256,3 +256,38 @@ var scriptGetAllSiteIDs = redisLuaScriptUtils.NewRedisScript(
 
 		return result;
 	`)
+
+var scriptGetSlotsRoutingInfo = redisLuaScriptUtils.NewRedisScript(
+	[]string{"keySiteSlotsHash"},
+	[]string{},
+	`
+		local function parse_json(input, defaultValue)
+			local success, result = pcall(function(input) return cjson.decode(input) end, input);
+			
+			if success then
+				return result;
+			else
+				return defaultValue;
+			end
+		end
+
+		local sites = redis.call('HGETALL', keySiteSlotsHash);
+
+		if sites == nil or sites == false then
+			sites = {};
+		end
+
+		local result = {}
+
+		for index = 1, #sites, 2 do
+			local site = sites[index]
+			local json = sites[index + 1]
+			local slots = parse_json(json, {})
+
+			for slot, role in pairs(slots) do
+				result[#result + 1] = { site, slot, role }
+			end
+		end
+
+		return result;
+	`)

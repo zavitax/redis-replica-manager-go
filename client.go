@@ -30,6 +30,8 @@ type ReplicaManagerClient interface {
 	GetSlot(ctx context.Context, slotId string) (*RedisReplicaManagerSiteSlot, error)
 	GetSlots(ctx context.Context) (*[]*RedisReplicaManagerSiteSlot, error)
 
+	GetSlotsRouting(ctx context.Context) (*[]*RedisReplicaManagerSiteSlot, error)
+
 	GetSiteID() string
 	GetShardID() uint32
 
@@ -86,6 +88,7 @@ type redisReplicaManagerClient struct {
 	callGetSiteSlotInfo            *redisLuaScriptUtils.CompiledRedisScript
 	callGetSiteSlots               *redisLuaScriptUtils.CompiledRedisScript
 	callGetAllSiteIDs              *redisLuaScriptUtils.CompiledRedisScript
+	callGetSlotsRoutingInfo        *redisLuaScriptUtils.CompiledRedisScript
 
 	keyPubsubChannel string
 
@@ -162,6 +165,13 @@ func NewRedisReplicaManagerClient(ctx context.Context, options *ReplicaManagerOp
 	if c.callGetAllSiteIDs, err = redisLuaScriptUtils.CompileRedisScripts(
 		[]*redisLuaScriptUtils.RedisScript{
 			scriptGetAllSiteIDs,
+		}, c.redisKeys); err != nil {
+		return nil, err
+	}
+
+	if c.callGetSlotsRoutingInfo, err = redisLuaScriptUtils.CompileRedisScripts(
+		[]*redisLuaScriptUtils.RedisScript{
+			scriptGetSlotsRoutingInfo,
 		}, c.redisKeys); err != nil {
 		return nil, err
 	}
@@ -259,31 +269,18 @@ func NewRedisReplicaManagerClient(ctx context.Context, options *ReplicaManagerOp
 	return c, nil
 }
 
+func (c *redisReplicaManagerClient) GetSlotsRouting(ctx context.Context) (*[]*RedisReplicaManagerSiteSlot, error) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	return c._getSlotsRoutingInfo(ctx)
+}
+
 func (c *redisReplicaManagerClient) GetAllKnownSites(ctx context.Context) (*[]*RedisReplicaManagerSite, error) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
-	args := make(redisLuaScriptUtils.RedisScriptArguments)
-	if response, err := c.callGetAllSiteIDs.Run(ctx, c.redis, &args).Slice(); err != nil {
-		return nil, err
-	} else {
-		result := response[0].([]interface{})
-
-		sites := make([]*RedisReplicaManagerSite, len(result)/2)
-
-		for index := 0; index < len(result); index += 2 {
-			if shardId, err := strconv.ParseUint(result[index+1].(string), 10, 32); err != nil {
-				return nil, err
-			} else {
-				sites[index/2] = &RedisReplicaManagerSite{
-					SiteID:  result[index].(string),
-					ShardID: uint32(shardId),
-				}
-			}
-		}
-
-		return &sites, nil
-	}
+	return c._getAllKnownSites(ctx)
 }
 
 func (c *redisReplicaManagerClient) GetSiteID() string {
@@ -643,5 +640,58 @@ func (c *redisReplicaManagerClient) _removeAllSiteSlots(ctx context.Context, sit
 		}
 
 		return nil
+	}
+}
+
+func (c *redisReplicaManagerClient) _getAllKnownSites(ctx context.Context) (*[]*RedisReplicaManagerSite, error) {
+	args := make(redisLuaScriptUtils.RedisScriptArguments)
+	if response, err := c.callGetAllSiteIDs.Run(ctx, c.redis, &args).Slice(); err != nil {
+		return nil, err
+	} else {
+		result := response[0].([]interface{})
+
+		sites := make([]*RedisReplicaManagerSite, len(result)/2)
+
+		for index := 0; index < len(result); index += 2 {
+			if shardId, err := strconv.ParseUint(result[index+1].(string), 10, 32); err != nil {
+				return nil, err
+			} else {
+				sites[index/2] = &RedisReplicaManagerSite{
+					SiteID:  result[index].(string),
+					ShardID: uint32(shardId),
+				}
+			}
+		}
+
+		return &sites, nil
+	}
+}
+
+func (c *redisReplicaManagerClient) _getSlotsRoutingInfo(ctx context.Context) (*[]*RedisReplicaManagerSiteSlot, error) {
+	args := make(redisLuaScriptUtils.RedisScriptArguments)
+
+	if response, err := c.callGetSlotsRoutingInfo.Run(ctx, c.redis, &args).Slice(); err != nil {
+		log.Error().
+			Str("action", "request_slots_routing_info").
+			Err(err).
+			Msg("Failed requesting site slots routing information")
+
+		return nil, err
+	} else {
+		result := response[0].([]interface{})
+
+		slots := make([]*RedisReplicaManagerSiteSlot, len(result))
+
+		for siteSlotIndex, siteSlot := range result {
+			parts := siteSlot.([]interface{})
+
+			slots[siteSlotIndex] = &RedisReplicaManagerSiteSlot{
+				SiteID: parts[0].(string),
+				SlotID: parts[1].(string),
+				Role:   parts[2].(string),
+			}
+		}
+
+		return &slots, nil
 	}
 }

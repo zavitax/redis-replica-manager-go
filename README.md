@@ -1,3 +1,57 @@
+# redis-replica-manager
+
+Group membership, sharding, replication and request routing manager relying on Redis for coordination.
+
+# TL;DR
+
+This library allows building distributed applications where partitioning of work is important, replication is desired and the cost of moving a work partition from shard to shard is high.
+
+It achieves it's goal by partitioning work into _slots_ and assigning each shard (cluster node) a set of _slots_ to be responsible for.
+
+A _slot_ can be assigned to more than one shard (replication scenario), yet only one shard will be designated a _master_ for each _slot_.
+
+The differentiation between a _master_ and a _normal_ shard role for a _slot_ is determined by the application.
+
+Assignment of _slots_ to _shards_ is determined by Rendezvous hashing (see below for more details).
+
+# Guarantees
+
+## High Availability
+
+The library allows replication of _slots_ to more than one _shard_.
+
+A _shard_ is not allowed to relinquish control of a _slot_ before the _slot_ has been migrated to enough _replicas_. he only exception to this rule is when a _shard_ is determined to be faulting.
+
+## Minimum Partition Migration
+
+Removal of a _shard_ from the cluster, results in redistribution of the _slots_ which that _shard_ was responsible for among other _shards_.
+
+When a _shard_ is added to the cluster, _slots_ which this _shard_ is now responsible for will move from other shards to the newly available _shard_.
+
+## Application Control
+
+Migration of _slots_ between _shards_ is _requested_ by the library, and _executed_ by the application.
+
+No assumptions are made about whether migration has completed or not by the library.
+
+The application determines when migration has completed, and notifies the library of that fact.
+
+## Faulty Shards Detection
+
+A heartbeat and a watchdog timer guarantee that faulting shards are removed from the cluster.
+
+# Rendezvous hashing
+
+Rendezvous or highest random weight (HRW) hashing is an algorithm that allows clients to achieve distributed agreement on a set of {\displaystyle k}k options out of a possible set of {\displaystyle n}n options. A typical application is when clients need to agree on which sites (or proxies) objects are assigned to.
+
+Rendezvous hashing is both much simpler and more general than consistent hashing, which becomes a special case (for {\displaystyle k=1}k=1) of rendezvous hashing.
+
+More information:
+https://en.wikipedia.org/wiki/Rendezvous_hashing
+
+# Example
+
+```go
 package main
 
 import (
@@ -16,12 +70,6 @@ var redisOptions = &redis.Options{
 	DB:       0,
 }
 
-func setup() {
-	redis := redis.NewClient(redisOptions)
-	redis.Do(context.Background(), "FLUSHDB").Result()
-	redis.Close()
-}
-
 func createReplicaManagerOptions(
 	testId string,
 	siteId string,
@@ -37,26 +85,17 @@ func createReplicaManagerOptions(
 }
 
 func createReplicaManagerClient(options *redisReplicaManager.ReplicaManagerOptions) (redisReplicaManager.ReplicaManagerClient, error) {
-	// setup(options)
-
 	return redisReplicaManager.NewRedisReplicaManagerClient(context.TODO(), options)
 }
 
 func main() {
-	zerolog.SetGlobalLevel(zerolog.Disabled)
-
 	ctx := context.Background()
 
-	setup()
-
 	options1 := createReplicaManagerOptions("main", "site1")
-	options2 := createReplicaManagerOptions("main", "site2")
 
 	options1.ShardID = 0
-	options2.ShardID = 1
 
 	client1, _ := createReplicaManagerClient(options1)
-	client2, _ := createReplicaManagerClient(options2)
 
 	balancerOptions := &redisReplicaManager.ReplicaBalancerOptions{
 		TotalSlotsCount:   512,
@@ -65,7 +104,6 @@ func main() {
 	}
 
 	balancer1, _ := redisReplicaManager.NewReplicaBalancer(ctx, balancerOptions)
-	balancer2, _ := redisReplicaManager.NewReplicaBalancer(ctx, balancerOptions)
 
 	manager1, _ := redisReplicaManager.NewClusterLocalNodeManager(ctx, &redisReplicaManager.ClusterNodeManagerOptions{
 		ReplicaManagerClient: client1,
@@ -100,60 +138,16 @@ func main() {
 		},
 	})
 
-	manager2, _ := redisReplicaManager.NewClusterLocalNodeManager(ctx, &redisReplicaManager.ClusterNodeManagerOptions{
-		ReplicaManagerClient: client2,
-		ReplicaBalancer:      balancer2,
-		RefreshInterval:      time.Second * 15,
-		NotifyMissingSlotsHandler: func(ctx context.Context, manager redisReplicaManager.ClusterLocalNodeManager, slots *[]uint32) error {
-			fmt.Printf("m2: missing slots: %v\n", len(*slots))
-
-			for _, slotId := range *slots {
-				manager.RequestAddSlot(ctx, slotId)
-			}
-
-			return nil
-		},
-		NotifyRedundantSlotsHandler: func(ctx context.Context, manager redisReplicaManager.ClusterLocalNodeManager, slots *[]uint32) error {
-			fmt.Printf("m2: redundant slots: %v\n", len(*slots))
-
-			for _, slotId := range *slots {
-				if allowed, _ := manager.RequestRemoveSlot(ctx, slotId); allowed {
-					fmt.Printf("m2: allowed to remove slot: %v\n", allowed)
-				}
-			}
-
-			return nil
-		},
-		NotifyMasterSlotsChangedHandler: func(ctx context.Context, manager redisReplicaManager.ClusterLocalNodeManager) error {
-			slots, _ := manager.GetAllSlotsLocalNodeIsMasterFor(ctx)
-
-			fmt.Printf("m2: master slots changed: %v\n", len(*slots))
-
-			return nil
-		},
-	})
-
 	slots1, _ := manager1.GetSlotIdentifiers(ctx)
-	slots2, _ := manager2.GetSlotIdentifiers(ctx)
 
-	fmt.Printf("manager1: %v\n", len(*slots1))
-	fmt.Printf("manager2: %v\n", len(*slots2))
-	fmt.Printf("sum: %v\n", len(*slots1)+len(*slots2))
-
-	// time.Sleep(time.Second)
+	fmt.Printf("manager1 slots count: %v\n", len(*slots1))
 
 	fmt.Printf("m1: shards for slot 1: %v\n", manager1.GetSlotShardsRouteTable(ctx, 1))
-	fmt.Printf("m2: shards for slot 1: %v\n", manager2.GetSlotShardsRouteTable(ctx, 1))
-
 	fmt.Printf("m1: shards for slot 497: %v\n", manager1.GetSlotShardsRouteTable(ctx, 497))
-	fmt.Printf("m2: shards for slot 497: %v\n", manager2.GetSlotShardsRouteTable(ctx, 497))
 
 	fmt.Printf("m1: master shard for slot 1: %v\n", manager1.GetSlotMasterShardRoute(ctx, 1))
-	fmt.Printf("m2: master shard for slot 1: %v\n", manager2.GetSlotMasterShardRoute(ctx, 1))
-
 	fmt.Printf("m1: master shard for slot 497: %v\n", manager1.GetSlotMasterShardRoute(ctx, 497))
-	fmt.Printf("m2: master shard for slot 497: %v\n", manager2.GetSlotMasterShardRoute(ctx, 497))
 
 	manager1.Close()
-	manager2.Close()
 }
+```
