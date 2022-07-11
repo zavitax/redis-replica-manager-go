@@ -141,6 +141,6 @@ func main() {
 
 	time.Sleep(time.Second * 5)
 
-	client1.Close()
-	client2.Close()
+	manager1.Close()
+	manager2.Close()
 }

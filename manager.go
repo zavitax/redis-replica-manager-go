@@ -17,6 +17,8 @@ type ClusterLocalNodeManager interface {
 
 	IsSlotMaster(ctx context.Context, slotId uint32) (bool, error)
 	GetAllSlotsLocalNodeIsMasterFor(ctx context.Context) (*[]uint32, error)
+
+	Close() error
 }
 
 type nodeManager struct {
@@ -33,6 +35,19 @@ type nodeManager struct {
 	masterSlots *bit.Set
 
 	siteId string
+}
+
+func (c *nodeManager) formatSlotId(slotId uint32) string {
+	return fmt.Sprintf("slot-%v", slotId)
+}
+
+func (c *nodeManager) parseSlotId(slotId string) (uint32, error) {
+	result := int(0)
+	if _, err := fmt.Sscanf(slotId, "slot-%d", &result); err != nil {
+		return 0, err
+	} else {
+		return uint32(result), nil
+	}
 }
 
 func NewClusterLocalNodeManager(ctx context.Context, opts *ClusterNodeManagerOptions) (ClusterLocalNodeManager, error) {
@@ -71,17 +86,16 @@ func NewClusterLocalNodeManager(ctx context.Context, opts *ClusterNodeManagerOpt
 	return c, nil
 }
 
-func (c *nodeManager) formatSlotId(slotId uint32) string {
-	return fmt.Sprintf("slot-%v", slotId)
-}
+func (c *nodeManager) Close() error {
+	c.mu.Lock()
+	defer c.mu.Unlock()
 
-func (c *nodeManager) parseSlotId(slotId string) (uint32, error) {
-	result := int(0)
-	if _, err := fmt.Sscanf(slotId, "slot-%d", &result); err != nil {
-		return 0, err
-	} else {
-		return uint32(result), nil
-	}
+	c.housekeep_cancelFunc()
+
+	c.masterSlots = bit.New()
+	c.slots = make(map[uint32]bool)
+
+	return c.opts.ReplicaManagerClient.Close()
 }
 
 func (c *nodeManager) GetAllSlotsLocalNodeIsMasterFor(ctx context.Context) (*[]uint32, error) {
