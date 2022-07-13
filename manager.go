@@ -177,6 +177,8 @@ func (c *nodeManager) GetSlotPrimaryShardRoute(ctx context.Context, slotId uint3
 		}
 	}
 
+	// Didn't find master: search again in case the routing table needs a refresh
+
 	if err := c._evalSlotsRouting(ctx); err != nil {
 		return nil
 	}
