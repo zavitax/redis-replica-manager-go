@@ -10,6 +10,7 @@ import (
 	//"github.com/rs/zerolog"
 
 	"github.com/go-redis/redis/v8"
+	"github.com/rs/zerolog"
 	redisReplicaManager "github.com/zavitax/redis-replica-manager-go"
 )
 
@@ -46,6 +47,8 @@ func createReplicaManagerClient(options *redisReplicaManager.ReplicaManagerOptio
 }
 
 func TestConnectDisconnect(t *testing.T) {
+	zerolog.SetGlobalLevel(zerolog.Disabled)
+
 	client, err := createReplicaManagerClient(createReplicaManagerOptions("TestConnectDisconnect", "site1"))
 
 	if err != nil {
@@ -57,7 +60,7 @@ func TestConnectDisconnect(t *testing.T) {
 }
 
 func TestPrimaryChange(t *testing.T) {
-	// zerolog.SetGlobalLevel(zerolog.Disabled)
+	zerolog.SetGlobalLevel(zerolog.Disabled)
 
 	ctx := context.Background()
 
@@ -115,6 +118,8 @@ func TestPrimaryChange(t *testing.T) {
 }
 
 func TestSiteTimeout(t *testing.T) {
+	zerolog.SetGlobalLevel(zerolog.Disabled)
+
 	ctx := context.Background()
 
 	setup()
@@ -186,7 +191,7 @@ func TestSiteTimeout(t *testing.T) {
 }
 
 func TestGetAllKnownSites(t *testing.T) {
-	//zerolog.SetGlobalLevel(zerolog.Disabled)
+	zerolog.SetGlobalLevel(zerolog.Disabled)
 
 	ctx := context.Background()
 
