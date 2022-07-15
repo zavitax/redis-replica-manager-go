@@ -6,6 +6,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/rs/zerolog/log"
 	"github.com/yourbasic/bit"
 )
 
@@ -333,12 +334,18 @@ func (c *localSiteManager) _housekeep(ctx context.Context) error {
 	}
 
 	if err := c._evalPrimarySlots(ctx); err != nil {
-		// TODO: Log
+		log.Error().
+			Str("action", "housekeep_eval_local_primary_slots").
+			Err(err).
+			Msg("Failed evaluating changes to list of slots local site is the primary site for")
 	}
 
 	c.mu.RLock()
 	if err := c._evalSlotsRouting(ctx); err != nil {
-		// TODO: Log
+		log.Error().
+			Str("action", "housekeep_refresh_slots_routing_table").
+			Err(err).
+			Msg("Failed refreshing slots routing table")
 	}
 	c.mu.RUnlock()
 
@@ -393,7 +400,12 @@ func (c *localSiteManager) _evalPrimarySlots(ctx context.Context) error {
 			slotId, err := c.parseSlotId(slot.SlotID)
 
 			if err != nil {
-				// TODO: Log error
+				log.Warn().
+					Str("SiteID", slot.SiteID).
+					Str("SlotID", slot.SlotID).
+					Str("action", "eval_local_primary_slots").
+					Err(err).
+					Msg("Failed parsing Slot ID")
 				continue
 			}
 
@@ -430,7 +442,12 @@ func (c *localSiteManager) _evalSlotsRouting(ctx context.Context) error {
 
 		for _, route := range *routes {
 			if slotId, err := c.parseSlotId(route.SlotID); err != nil {
-				// TODO: Log
+				log.Warn().
+					Str("SiteID", route.SiteID).
+					Str("SlotID", route.SlotID).
+					Str("action", "eval_slot_routing").
+					Err(err).
+					Msg("Failed parsing Slot ID")
 			} else {
 				if _, ok := routeTable[slotId]; !ok {
 					routeTable[slotId] = []*RouteTableEntry{}
