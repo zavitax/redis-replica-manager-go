@@ -129,7 +129,7 @@ func main() {
 			  // Ask the cluster manager if we are allower to remove a redundant slot
 			  // (if it satisfies minimum replica count on other sites)
 				if allowed, _ := manager.RequestRemoveSlot(ctx, slotId); allowed {
-          // Slot has been approved for removal by the cluater (and has bee removed from the routing table)
+          // Slot has been approved for removal by the cluster (and has bee removed from the routing table)
 					fmt.Printf("m1: allowed to remove slot from local site: %v\n", allowed)
 				}
 			}
