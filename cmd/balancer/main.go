@@ -9,15 +9,15 @@ import (
 	redisReplicaManager "github.com/zavitax/redis-replica-manager-go"
 )
 
-func printShards(ctx context.Context, router redisReplicaManager.ReplicaBalancer, prev [][]uint32) [][]uint32 {
-	totalShards := router.GetTotalShardsCount()
+func printSites(ctx context.Context, router redisReplicaManager.ReplicaBalancer, prev map[string][]uint32) map[string][]uint32 {
+	totalSites := router.GetTotalSitesCount()
 
-	result := make([][]uint32, totalShards)
+	result := make(map[string][]uint32, totalSites)
 
 	slotsMap := make(map[uint32]bool)
 
-	for shardId := uint32(0); shardId < totalShards; shardId++ {
-		slots := router.GetTargetSlotsForShard(ctx, shardId)
+	for _, siteId := range *router.GetSites() {
+		slots := router.GetTargetSlotsForSite(ctx, siteId)
 
 		distance := 0
 
@@ -25,10 +25,10 @@ func printShards(ctx context.Context, router redisReplicaManager.ReplicaBalancer
 			source := []rune{}
 			dest := make([]rune, len(*slots))
 
-			if uint32(len(prev)) > shardId {
-				source = make([]rune, len(prev[shardId]))
+			if len(prev[siteId]) > 0 {
+				source = make([]rune, len(prev[siteId]))
 
-				for index, slot := range prev[shardId] {
+				for index, slot := range prev[siteId] {
 					source[index] = rune(slot)
 				}
 			}
@@ -40,13 +40,13 @@ func printShards(ctx context.Context, router redisReplicaManager.ReplicaBalancer
 			distance = levenshtein.DistanceForStrings(source, dest, levenshtein.DefaultOptions)
 		}
 
-		fmt.Printf("Shard %v -> Slots: %v -> changes: %v\n", shardId, len(*slots), distance)
+		fmt.Printf("Site %v -> Slots: %v -> changes: %v\n", siteId, len(*slots), distance)
 
 		for _, slot := range *slots {
 			slotsMap[slot] = true
 		}
 
-		result[shardId] = *slots
+		result[siteId] = *slots
 	}
 
 	fmt.Printf("  -> unique slots: %v\n", len(slotsMap))
@@ -60,52 +60,52 @@ func main() {
 	ctx := context.Background()
 
 	totalReplicas := 2
-	totalShards := 8 * totalReplicas
+	totalSites := 8 * totalReplicas
 	totalSlots := 256
 
 	balancer, _ := redisReplicaManager.NewReplicaBalancer(ctx, &redisReplicaManager.ReplicaBalancerOptions{
 		TotalSlotsCount:   totalSlots,
-		MinimumShardCount: totalShards / totalReplicas,
+		MinimumSitesCount: totalSites / totalReplicas,
 		SlotReplicaCount:  totalReplicas,
 	})
 
-	for shardId := uint32(0); shardId < uint32(totalShards); shardId++ {
-		balancer.AddShard(ctx, shardId)
+	for siteId := uint32(0); siteId < uint32(totalSites); siteId++ {
+		balancer.AddSite(ctx, fmt.Sprintf("shard-%v", siteId))
 	}
 
-	fmt.Printf("All shards\n")
-	prev := printShards(ctx, balancer, nil)
+	fmt.Printf("All sites\n")
+	prev := printSites(ctx, balancer, nil)
 
-	fmt.Printf("Removed some shards from middle\n")
+	fmt.Printf("Removed some sites from middle\n")
 
-	balancer.RemoveShard(ctx, 2)
-	balancer.RemoveShard(ctx, 3)
+	balancer.RemoveSite(ctx, fmt.Sprintf("shard-%v", 2))
+	balancer.RemoveSite(ctx, fmt.Sprintf("shard-%v", 3))
 
-	prev = printShards(ctx, balancer, prev)
+	prev = printSites(ctx, balancer, prev)
 
-	fmt.Printf("Removed some shards from end\n")
+	fmt.Printf("Removed some sites from end\n")
 
-	balancer.AddShard(ctx, 2)
-	balancer.AddShard(ctx, 3)
+	balancer.AddSite(ctx, fmt.Sprintf("shard-%v", 2))
+	balancer.AddSite(ctx, fmt.Sprintf("shard-%v", 3))
 
-	balancer.RemoveShard(ctx, 5)
+	balancer.RemoveSite(ctx, fmt.Sprintf("shard-%v", 5))
 
-	prev = printShards(ctx, balancer, prev)
+	prev = printSites(ctx, balancer, prev)
 
-	fmt.Printf("Returned some shards to end\n")
+	fmt.Printf("Returned some sites to end\n")
 
-	balancer.AddShard(ctx, 5)
+	balancer.AddSite(ctx, fmt.Sprintf("shard-%v", 5))
 
-	prev = printShards(ctx, balancer, prev)
+	prev = printSites(ctx, balancer, prev)
 
-	fmt.Printf("Added shards after end\n")
+	fmt.Printf("Added sites after end\n")
 
-	balancer.AddShard(ctx, 16)
-	balancer.AddShard(ctx, 17)
-	balancer.AddShard(ctx, 18)
-	balancer.AddShard(ctx, 19)
-	balancer.AddShard(ctx, 20)
-	balancer.AddShard(ctx, 21)
+	balancer.AddSite(ctx, fmt.Sprintf("shard-%v", 16))
+	balancer.AddSite(ctx, fmt.Sprintf("shard-%v", 17))
+	balancer.AddSite(ctx, fmt.Sprintf("shard-%v", 18))
+	balancer.AddSite(ctx, fmt.Sprintf("shard-%v", 19))
+	balancer.AddSite(ctx, fmt.Sprintf("shard-%v", 20))
+	balancer.AddSite(ctx, fmt.Sprintf("shard-%v", 21))
 
-	prev = printShards(ctx, balancer, prev)
+	prev = printSites(ctx, balancer, prev)
 }

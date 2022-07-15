@@ -11,7 +11,6 @@ import (
 type ReplicaManagerOptions struct {
 	RedisOptions              *redis.Options
 	SiteID                    string
-	ShardID                   uint32
 	SiteTimeout               time.Duration
 	RedisKeyPrefix            string
 	UpdateNotificationHandler RedisReplicaManagerUpdateFunc
@@ -20,7 +19,6 @@ type ReplicaManagerOptions struct {
 
 type ReplicaManagerClientProviderOptions struct {
 	SiteID                    string
-	ShardID                   uint32
 	UpdateNotificationHandler RedisReplicaManagerUpdateFunc
 }
 
@@ -28,7 +26,7 @@ type ReplicaManagerClientProviderFunc func(ctx context.Context, opts *ReplicaMan
 type ReplicaBalancerOptions struct {
 	TotalSlotsCount   int
 	SlotReplicaCount  int
-	MinimumShardCount int
+	MinimumSitesCount int
 }
 
 type ClusterNodeManagerOptions struct {
@@ -37,9 +35,9 @@ type ClusterNodeManagerOptions struct {
 
 	RefreshInterval time.Duration
 
-	NotifyMissingSlotsHandler        func(ctx context.Context, manager ClusterLocalNodeManager, slots *[]uint32) error
-	NotifyRedundantSlotsHandler      func(ctx context.Context, manager ClusterLocalNodeManager, slots *[]uint32) error
-	NotifyPrimarySlotsChangedHandler func(ctx context.Context, manager ClusterLocalNodeManager) error
+	NotifyMissingSlotsHandler        func(ctx context.Context, manager LocalSiteManager, slots *[]uint32) error
+	NotifyRedundantSlotsHandler      func(ctx context.Context, manager LocalSiteManager, slots *[]uint32) error
+	NotifyPrimarySlotsChangedHandler func(ctx context.Context, manager LocalSiteManager) error
 }
 
 var validationError = fmt.Errorf("All Options values must be correctly specified")
@@ -105,7 +103,7 @@ func (o *ReplicaBalancerOptions) Validate() error {
 		return validationError
 	}
 
-	if o.MinimumShardCount < 1 {
+	if o.MinimumSitesCount < 1 {
 		return validationError
 	}
 

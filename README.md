@@ -4,45 +4,45 @@ Group membership, sharding, replication and request routing manager relying on R
 
 # TL;DR
 
-This library allows building distributed applications where partitioning of work is important, replication is desired and the cost of moving a work partition from shard to shard is high.
+This library allows building distributed applications where partitioning of work is important, replication is desired and the cost of moving a work partition from site to site is high.
 
-It achieves it's goal by partitioning work into _slots_ and assigning each shard (cluster node) a set of _slots_ to be responsible for.
+It achieves it's goal by partitioning work into _slots_ and assigning each site (cluster node) a set of _slots_ to be responsible for.
 
-A _slot_ can be assigned to more than one shard (replication scenario), yet only one shard will be designated a _primary_ for each _slot_.
+A _slot_ can be assigned to more than one site (replication scenario), yet only one site will be designated a _primary_ for each _slot_.
 
-The differentiation between a _primary_ and a _secondary_ shard role for a _slot_ is determined by the application.
+The differentiation between a _primary_ and a _secondary_ site role for a _slot_ is determined by the application.
 
-Assignment of _slots_ to _shards_ is determined by Rendezvous hashing (see below for more details).
+Assignment of _slots_ to _sites_ is determined by Rendezvous hashing (see below for more details).
 
 # Guarantees
 
 ## High Availability
 
-The library allows replication of _slots_ to more than one _shard_.
+The library allows replication of _slots_ to more than one _site_.
 
-A _shard_ is not allowed to relinquish control of a _slot_ before the _slot_ has been migrated to enough _replicas_. he only exception to this rule is when a _shard_ is determined to be faulting.
+A _site_ is not allowed to relinquish responsibility of a _slot_ before the _slot_ has been migrated to enough _replicas_. The only exception to this rule is when a _site_ is determined to be faulting.
 
 ## Minimum Partition Migration
 
-Removal of a _shard_ from the cluster, results in redistribution of the _slots_ which that _shard_ was responsible for among other _shards_.
+Removal of a _site_ from the cluster, results in redistribution of the _slots_ which that _site_ was responsible for among other _sites_.
 
-When a _shard_ is added to the cluster, _slots_ which this _shard_ is now responsible for will move from other shards to the newly available _shard_.
+When a _site_ is added to the cluster, _slots_ which this _site_ is now responsible for will move from other sites to the newly available _site_.
 
 ## Application Control
 
-Migration of _slots_ between _shards_ is _requested_ by the library, and _executed_ by the application.
+Migration of _slots_ between _sites_ is _requested_ by the library, and _executed_ by the application.
 
 No assumptions are made about whether migration has completed or not by the library.
 
 The application determines when migration has completed, and notifies the library of that fact.
 
-## Faulty Shards Detection
+## Faulty Sites Detection
 
-A heartbeat and a watchdog timer guarantee that faulting shards are removed from the cluster.
+A heartbeat and a watchdog timer guarantee that faulting sites are removed from the cluster.
 
 ## Dynamic Routing
 
-The library maintains a routing table that maps _slots_ to a list of _shards_ which is used to route requests for _slots_ to the right _shard_.
+The library maintains a routing table that maps _slots_ to a list of _sites_ which is used to route requests for _slots_ to the right _site_.
 
 # Rendezvous hashing
 
@@ -97,48 +97,46 @@ func main() {
 
 	options1 := createReplicaManagerOptions("main", "site1")
 
-	options1.ShardID = 0
-
 	client1, _ := createReplicaManagerClient(options1)
 
 	balancerOptions := &redisReplicaManager.ReplicaBalancerOptions{
 		TotalSlotsCount:   512,
 		SlotReplicaCount:  1,
-		MinimumShardCount: 1,
+		MinimumSitesCount: 1,
 	}
 
 	balancer1, _ := redisReplicaManager.NewReplicaBalancer(ctx, balancerOptions)
 
-	manager1, _ := redisReplicaManager.NewClusterLocalNodeManager(ctx, &redisReplicaManager.ClusterNodeManagerOptions{
+	manager1, _ := redisReplicaManager.NewLocalSiteManager(ctx, &redisReplicaManager.ClusterNodeManagerOptions{
 		ReplicaManagerClient: client1,
 		ReplicaBalancer:      balancer1,
 		RefreshInterval:      time.Second * 15,
-		NotifyMissingSlotsHandler: func(ctx context.Context, manager redisReplicaManager.ClusterLocalNodeManager, slots *[]uint32) error {
-			fmt.Printf("m1: missing slots to be added to local shard: %v\n", len(*slots))
+		NotifyMissingSlotsHandler: func(ctx context.Context, manager redisReplicaManager.LocalSiteManager, slots *[]uint32) error {
+			fmt.Printf("m1: missing slots to be added to local site: %v\n", len(*slots))
 
 			for _, slotId := range *slots {
-        // Notify the cluster that the slot was added to the local shard.
-        // This should happen only when the slot migration has fully and successfully completed.
+			  // Notify the cluster that the slot was added to the local site.
+			  // This should happen only when the slot migration has fully and successfully completed.
 				manager.RequestAddSlot(ctx, slotId)
 			}
 
 			return nil
 		},
-		NotifyRedundantSlotsHandler: func(ctx context.Context, manager redisReplicaManager.ClusterLocalNodeManager, slots *[]uint32) error {
-			fmt.Printf("m1: redundant slots to be removed from local shard: %v\n", len(*slots))
+		NotifyRedundantSlotsHandler: func(ctx context.Context, manager redisReplicaManager.LocalSiteManager, slots *[]uint32) error {
+			fmt.Printf("m1: redundant slots to be removed from local site: %v\n", len(*slots))
 
 			for _, slotId := range *slots {
-        // Ask the cluster manager if we are allower to remove a redundant slot
-        // (if it satisfies minimum replica count on other shards)
+			  // Ask the cluster manager if we are allower to remove a redundant slot
+			  // (if it satisfies minimum replica count on other sites)
 				if allowed, _ := manager.RequestRemoveSlot(ctx, slotId); allowed {
           // Slot has been approved for removal by the cluater (and has bee removed from the routing table)
-					fmt.Printf("m1: allowed to remove slot from local shard: %v\n", allowed)
+					fmt.Printf("m1: allowed to remove slot from local site: %v\n", allowed)
 				}
 			}
 
 			return nil
 		},
-		NotifyPrimarySlotsChangedHandler: func(ctx context.Context, manager redisReplicaManager.ClusterLocalNodeManager) error {
+		NotifyPrimarySlotsChangedHandler: func(ctx context.Context, manager redisReplicaManager.LocalSiteManager) error {
 			slots, _ := manager.GetAllSlotsLocalNodeIsPrimaryFor(ctx)
 
 			fmt.Printf("m1: primary slots changed: %v\n", len(*slots))
@@ -151,11 +149,11 @@ func main() {
 
 	fmt.Printf("manager1 slots count: %v\n", len(*slots1))
 
-	fmt.Printf("m1: shards for slot 1: %v\n", manager1.GetSlotShardsRouteTable(ctx, 1))
-	fmt.Printf("m1: shards for slot 497: %v\n", manager1.GetSlotShardsRouteTable(ctx, 497))
+	fmt.Printf("m1: sites for slot 1: %v\n", manager1.GetSlotRouteTable(ctx, 1))
+	fmt.Printf("m1: sites for slot 497: %v\n", manager1.GetSlotRouteTable(ctx, 497))
 
-	fmt.Printf("m1: primary shard for slot 1: %v\n", manager1.GetSlotPrimaryShardRoute(ctx, 1))
-	fmt.Printf("m1: primary shard for slot 497: %v\n", manager1.GetSlotPrimaryShardRoute(ctx, 497))
+	fmt.Printf("m1: primary site for slot 1: %v\n", manager1.GetSlotPrimarySiteRoute(ctx, 1))
+	fmt.Printf("m1: primary site for slot 497: %v\n", manager1.GetSlotPrimarySiteRoute(ctx, 497))
 
 	fmt.Printf("m1: slot for object abcdefg: %v\n", manager1.GetSlotForObject("abcdefg"))
 

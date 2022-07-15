@@ -10,13 +10,12 @@ import (
 )
 
 type RouteTableEntry struct {
-	SlotID  uint32
-	ShardID uint32
-	SiteID  string
-	Role    string
+	SlotID uint32
+	SiteID string
+	Role   string
 }
 
-type ClusterLocalNodeManager interface {
+type LocalSiteManager interface {
 	RequestAddSlot(ctx context.Context, slotId uint32) (bool, error)
 	RequestRemoveSlot(ctx context.Context, slotId uint32) (bool, error)
 
@@ -24,17 +23,17 @@ type ClusterLocalNodeManager interface {
 
 	GetSlotForObject(objectId string) uint32
 
-	GetSlotShardsRouteTable(ctx context.Context, slotId uint32) *[]*RouteTableEntry
-	GetSlotPrimaryShardRoute(ctx context.Context, slotId uint32) *RouteTableEntry
+	GetSlotRouteTable(ctx context.Context, slotId uint32) *[]*RouteTableEntry
+	GetSlotPrimarySiteRoute(ctx context.Context, slotId uint32) *RouteTableEntry
 
-	IsSlotPrimary(ctx context.Context, slotId uint32) (bool, error)
-	GetAllSlotsLocalNodeIsPrimaryFor(ctx context.Context) (*[]uint32, error)
+	IsLocalSitePrimaryForSlot(ctx context.Context, slotId uint32) (bool, error)
+	GetAllSlotsLocalSiteIsPrimaryFor(ctx context.Context) (*[]uint32, error)
 
 	Close() error
 }
 
-type nodeManager struct {
-	ClusterLocalNodeManager
+type localSiteManager struct {
+	LocalSiteManager
 
 	mu sync.RWMutex
 
@@ -52,11 +51,11 @@ type nodeManager struct {
 	housekeep_done_channel chan bool
 }
 
-func (c *nodeManager) formatSlotId(slotId uint32) string {
+func (c *localSiteManager) formatSlotId(slotId uint32) string {
 	return fmt.Sprintf("slot-%v", slotId)
 }
 
-func (c *nodeManager) parseSlotId(slotId string) (uint32, error) {
+func (c *localSiteManager) parseSlotId(slotId string) (uint32, error) {
 	result := int(0)
 	if _, err := fmt.Sscanf(slotId, "slot-%d", &result); err != nil {
 		return 0, err
@@ -65,14 +64,14 @@ func (c *nodeManager) parseSlotId(slotId string) (uint32, error) {
 	}
 }
 
-func NewClusterLocalNodeManager(ctx context.Context, opts *ClusterNodeManagerOptions) (ClusterLocalNodeManager, error) {
+func NewLocalSiteManager(ctx context.Context, opts *ClusterNodeManagerOptions) (LocalSiteManager, error) {
 	if err := opts.Validate(); err != nil {
 		return nil, err
 	}
 
 	slotsRoutingMap := make(map[uint32][]*RouteTableEntry)
 
-	c := &nodeManager{
+	c := &localSiteManager{
 		opts:            opts,
 		slots:           make(map[uint32]bool),
 		slotsRoutingMap: &slotsRoutingMap,
@@ -102,12 +101,12 @@ func NewClusterLocalNodeManager(ctx context.Context, opts *ClusterNodeManagerOpt
 				c._housekeep(ctx)
 			}
 		}
-	})(ctx)
+	})(c.housekeep_context)
 
 	return c, nil
 }
 
-func (c *nodeManager) Close() error {
+func (c *localSiteManager) Close() error {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
@@ -121,14 +120,14 @@ func (c *nodeManager) Close() error {
 	return c.opts.ReplicaManagerClient.Close()
 }
 
-func (c *nodeManager) GetSlotForObject(objectId string) uint32 {
+func (c *localSiteManager) GetSlotForObject(objectId string) uint32 {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
 
 	return c.opts.ReplicaBalancer.GetSlotForObject(objectId)
 }
 
-func (c *nodeManager) GetSlotShardsRouteTable(ctx context.Context, slotId uint32) *[]*RouteTableEntry {
+func (c *localSiteManager) GetSlotRouteTable(ctx context.Context, slotId uint32) *[]*RouteTableEntry {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
 
@@ -142,20 +141,20 @@ func (c *nodeManager) GetSlotShardsRouteTable(ctx context.Context, slotId uint32
 		return nil
 	}
 
-	shards := (*c.slotsRoutingMap)[slotId]
+	sites := (*c.slotsRoutingMap)[slotId]
 
-	if len(shards) < 1 {
+	if len(sites) < 1 {
 		if err := c._evalSlotsRouting(ctx); err != nil {
 			return nil
 		}
 
-		shards = (*c.slotsRoutingMap)[slotId]
+		sites = (*c.slotsRoutingMap)[slotId]
 	}
 
-	return &shards
+	return &sites
 }
 
-func (c *nodeManager) GetSlotPrimaryShardRoute(ctx context.Context, slotId uint32) *RouteTableEntry {
+func (c *localSiteManager) GetSlotPrimarySiteRoute(ctx context.Context, slotId uint32) *RouteTableEntry {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
 
@@ -169,11 +168,11 @@ func (c *nodeManager) GetSlotPrimaryShardRoute(ctx context.Context, slotId uint3
 		return nil
 	}
 
-	shards := (*c.slotsRoutingMap)[slotId]
+	sites := (*c.slotsRoutingMap)[slotId]
 
-	for _, shard := range shards {
-		if shard.Role == ROLE_PRIMARY {
-			return shard
+	for _, site := range sites {
+		if site.Role == ROLE_PRIMARY {
+			return site
 		}
 	}
 
@@ -183,16 +182,16 @@ func (c *nodeManager) GetSlotPrimaryShardRoute(ctx context.Context, slotId uint3
 		return nil
 	}
 
-	for _, shard := range shards {
-		if shard.Role == ROLE_PRIMARY {
-			return shard
+	for _, site := range sites {
+		if site.Role == ROLE_PRIMARY {
+			return site
 		}
 	}
 
 	return nil
 }
 
-func (c *nodeManager) GetAllSlotsLocalNodeIsPrimaryFor(ctx context.Context) (*[]uint32, error) {
+func (c *localSiteManager) GetAllSlotsLocalSiteIsPrimaryFor(ctx context.Context) (*[]uint32, error) {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
 
@@ -207,14 +206,14 @@ func (c *nodeManager) GetAllSlotsLocalNodeIsPrimaryFor(ctx context.Context) (*[]
 	return &result, nil
 }
 
-func (c *nodeManager) IsSlotPrimary(ctx context.Context, slotId uint32) (bool, error) {
+func (c *localSiteManager) IsLocalSitePrimaryForSlot(ctx context.Context, slotId uint32) (bool, error) {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
 
 	return c.primarySlots.Contains(int(slotId)), nil
 }
 
-func (c *nodeManager) GetSlotIdentifiers(ctx context.Context) (*[]uint32, error) {
+func (c *localSiteManager) GetSlotIdentifiers(ctx context.Context) (*[]uint32, error) {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
 
@@ -229,7 +228,7 @@ func (c *nodeManager) GetSlotIdentifiers(ctx context.Context) (*[]uint32, error)
 	return &result, nil
 }
 
-func (c *nodeManager) RequestAddSlot(ctx context.Context, slotId uint32) (bool, error) {
+func (c *localSiteManager) RequestAddSlot(ctx context.Context, slotId uint32) (bool, error) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
@@ -244,7 +243,7 @@ func (c *nodeManager) RequestAddSlot(ctx context.Context, slotId uint32) (bool, 
 	return true, nil
 }
 
-func (c *nodeManager) RequestRemoveSlot(ctx context.Context, slotId uint32) (bool, error) {
+func (c *localSiteManager) RequestRemoveSlot(ctx context.Context, slotId uint32) (bool, error) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
@@ -264,44 +263,44 @@ func (c *nodeManager) RequestRemoveSlot(ctx context.Context, slotId uint32) (boo
 	return true, nil
 }
 
-func (c *nodeManager) _housekeep(ctx context.Context) error {
-	knownSites := &[]*RedisReplicaManagerSite{}
+func (c *localSiteManager) _housekeep(ctx context.Context) error {
+	liveSites := &[]*RedisReplicaManagerSite{}
 
-	if knownSitesResponse, err := c.opts.ReplicaManagerClient.GetAllKnownSites(ctx); err != nil {
+	if liveSitesResponse, err := c.opts.ReplicaManagerClient.GetLiveSites(ctx); err != nil {
 		return err
 	} else {
-		knownSites = knownSitesResponse
+		liveSites = liveSitesResponse
 	}
 
 	c.mu.RLock()
 
-	// Step 1: make sure we are using an up-to-date list of shards
+	// Step 1: make sure we are using an up-to-date list of sites
 
-	knownShards := c.opts.ReplicaBalancer.GetShardIdentifiers()
-	knownShardsMap := make(map[uint32]bool)
-	for _, shardId := range *knownShards {
-		knownShardsMap[shardId] = true
+	knownSites := c.opts.ReplicaBalancer.GetSites()
+	knownSitesMap := make(map[string]bool)
+	for _, siteId := range *knownSites {
+		knownSitesMap[siteId] = true
 	}
 
-	wantShardsMap := make(map[uint32]bool)
-	for _, site := range *knownSites {
-		wantShardsMap[site.ShardID] = true
-		if !knownShardsMap[site.ShardID] {
-			// We don't have this shard
-			c.opts.ReplicaBalancer.AddShard(ctx, site.ShardID)
+	wantSitesMap := make(map[string]bool)
+	for _, site := range *liveSites {
+		wantSitesMap[site.SiteID] = true
+		if !knownSitesMap[site.SiteID] {
+			// We don't have this site
+			c.opts.ReplicaBalancer.AddSite(ctx, site.SiteID)
 		}
 	}
 
-	for shardId, _ := range knownShardsMap {
-		if !wantShardsMap[shardId] {
-			// We think this shard exists, but it no longer does
-			c.opts.ReplicaBalancer.RemoveShard(ctx, shardId)
+	for siteId, _ := range knownSitesMap {
+		if !wantSitesMap[siteId] {
+			// We think this site exists, but it no longer does
+			c.opts.ReplicaBalancer.RemoveSite(ctx, siteId)
 		}
 	}
 
-	// Step 2: make sure slots are correctly distributed between shards
+	// Step 2: make sure slots are correctly distributed between sites
 
-	wantSlots := c.opts.ReplicaBalancer.GetTargetSlotsForShard(ctx, c.opts.ReplicaManagerClient.GetShardID())
+	wantSlots := c.opts.ReplicaBalancer.GetTargetSlotsForSite(ctx, c.opts.ReplicaManagerClient.GetSiteID())
 	wantSlotsMap := make(map[uint32]bool)
 
 	missingSlots := []uint32{}
@@ -346,7 +345,7 @@ func (c *nodeManager) _housekeep(ctx context.Context) error {
 	return nil
 }
 
-func (c *nodeManager) _inspectReplicaManagerClientPacket(ctx context.Context, packet *RedisReplicaManagerUpdate) error {
+func (c *localSiteManager) _inspectReplicaManagerClientPacket(ctx context.Context, packet *RedisReplicaManagerUpdate) error {
 	if packet.Event == "slot_primary_change" {
 		if slotId, err := c.parseSlotId(packet.SlotID); err != nil {
 			return err
@@ -381,7 +380,7 @@ func (c *nodeManager) _inspectReplicaManagerClientPacket(ctx context.Context, pa
 	return nil
 }
 
-func (c *nodeManager) _evalPrimarySlots(ctx context.Context) error {
+func (c *localSiteManager) _evalPrimarySlots(ctx context.Context) error {
 	if slots, err := c.opts.ReplicaManagerClient.GetSlots(ctx); err != nil {
 		return err
 	} else {
@@ -423,42 +422,29 @@ func (c *nodeManager) _evalPrimarySlots(ctx context.Context) error {
 	return nil
 }
 
-func (c *nodeManager) _evalSlotsRouting(ctx context.Context) error {
-	if sites, err := c.opts.ReplicaManagerClient.GetAllKnownSites(ctx); err != nil {
+func (c *localSiteManager) _evalSlotsRouting(ctx context.Context) error {
+	if routes, err := c.opts.ReplicaManagerClient.GetSlotsRouting(ctx); err != nil {
 		return err
 	} else {
-		sitesToShardsMap := make(map[string]uint32)
+		routeTable := make(map[uint32][]*RouteTableEntry)
 
-		for _, site := range *sites {
-			sitesToShardsMap[site.SiteID] = site.ShardID
-		}
-
-		if routes, err := c.opts.ReplicaManagerClient.GetSlotsRouting(ctx); err != nil {
-			return err
-		} else {
-			routeTable := make(map[uint32][]*RouteTableEntry)
-
-			for _, route := range *routes {
-				if slotId, err := c.parseSlotId(route.SlotID); err != nil {
-					// TODO: Log
-				} else {
-					if shardId, ok := sitesToShardsMap[route.SiteID]; ok {
-						if _, ok := routeTable[slotId]; !ok {
-							routeTable[slotId] = []*RouteTableEntry{}
-						}
-
-						routeTable[slotId] = append(routeTable[slotId], &RouteTableEntry{
-							SiteID:  route.SiteID,
-							ShardID: shardId,
-							SlotID:  slotId,
-							Role:    route.Role,
-						})
-					}
+		for _, route := range *routes {
+			if slotId, err := c.parseSlotId(route.SlotID); err != nil {
+				// TODO: Log
+			} else {
+				if _, ok := routeTable[slotId]; !ok {
+					routeTable[slotId] = []*RouteTableEntry{}
 				}
-			}
 
-			c.slotsRoutingMap = &routeTable
+				routeTable[slotId] = append(routeTable[slotId], &RouteTableEntry{
+					SiteID: route.SiteID,
+					SlotID: slotId,
+					Role:   route.Role,
+				})
+			}
 		}
+
+		c.slotsRoutingMap = &routeTable
 	}
 
 	return nil

@@ -203,7 +203,7 @@ func TestGetAllKnownSites(t *testing.T) {
 	client1, _ := createReplicaManagerClient(options1)
 	client2, _ := createReplicaManagerClient(options2)
 
-	if sites, err := client1.GetAllKnownSites(ctx); err != nil {
+	if sites, err := client1.GetLiveSites(ctx); err != nil {
 		t.Error(err)
 	} else {
 		curr := len(*sites)

@@ -6,7 +6,7 @@ import (
 
 var scriptAddSlotSite = redisLuaScriptUtils.NewRedisScript(
 	[]string{"keySlotSitesRolesHash", "keyPubsubChannel"},
-	[]string{"argSiteID", "argShardID", "argSlotID"},
+	[]string{"argSiteID", "argSlotID"},
 	`
 		local existingReplicaCount = tonumber(redis.call('HLEN', keySlotSitesRolesHash));
 		
@@ -59,8 +59,8 @@ var scriptAddSlotSite = redisLuaScriptUtils.NewRedisScript(
 	`)
 
 var scriptConditionalRemoveSlotSite = redisLuaScriptUtils.NewRedisScript(
-	[]string{"keySlotSitesRolesHash", "keyPubsubChannel", "keySitesShardIdentifiers", "keySitesTimestamps"},
-	[]string{"argSiteID", "argShardID", "argSlotID", "argMinReplicaCount", "argReason"},
+	[]string{"keySlotSitesRolesHash", "keyPubsubChannel", "keySitesTimestamps"},
+	[]string{"argSiteID", "argSlotID", "argMinReplicaCount", "argReason"},
 	`
 		local existingReplicaCount = tonumber(redis.call('HLEN', keySlotSitesRolesHash))
 		
@@ -74,7 +74,6 @@ var scriptConditionalRemoveSlotSite = redisLuaScriptUtils.NewRedisScript(
 
 		-- Remove site & get amount of removed sites
 		local removedSitesCount = redis.call('HDEL', keySlotSitesRolesHash, argSiteID);
-		redis.call('ZREM', keySitesShardIdentifiers, argSiteID)
 		redis.call('ZREM', keySitesTimestamps, argSiteID)
 		
 		-- Get new replica count after site was removed
@@ -120,7 +119,7 @@ var scriptConditionalRemoveSlotSite = redisLuaScriptUtils.NewRedisScript(
 
 var scriptUpdateSiteSlotChangeSnippet = redisLuaScriptUtils.NewRedisScript(
 	[]string{"keySlotSitesRolesHash", "keySiteSlotsHash"},
-	[]string{"argSiteID", "argShardID", "argSlotID"},
+	[]string{"argSiteID", "argSlotID"},
 	`
 		local function parse_json(input, defaultValue)
 			local success, result = pcall(function(input) return cjson.decode(input) end, input);
@@ -162,11 +161,9 @@ var scriptUpdateSiteSlotChangeSnippet = redisLuaScriptUtils.NewRedisScript(
 	`)
 
 var scriptUpdateSiteTimestampSnippet = redisLuaScriptUtils.NewRedisScript(
-	[]string{"keySitesTimestamps", "keySitesShardIdentifiers"},
-	[]string{"argSiteID", "argShardID", "argCurrentTimestamp"},
+	[]string{"keySitesTimestamps"},
+	[]string{"argSiteID", "argCurrentTimestamp"},
 	`
-		redis.call('ZADD', keySitesShardIdentifiers, tonumber(argShardID), argSiteID)
-
 		return tonumber(redis.call('ZADD', keySitesTimestamps, 'GT', tonumber(argCurrentTimestamp), argSiteID));
 	`)
 
@@ -208,7 +205,7 @@ var scriptGetTimedOutSites = redisLuaScriptUtils.NewRedisScript(
 
 var scriptGetSiteSlotInfo = redisLuaScriptUtils.NewRedisScript(
 	[]string{"keySlotSitesRolesHash", "keySiteSlotsHash"},
-	[]string{"argSiteID", "argShardID", "argSlotID"},
+	[]string{"argSiteID", "argSlotID"},
 	`
 		local role = redis.call('HGET', keySlotSitesRolesHash, argSiteID)
 
@@ -221,7 +218,7 @@ var scriptGetSiteSlotInfo = redisLuaScriptUtils.NewRedisScript(
 
 var scriptGetSiteSlots = redisLuaScriptUtils.NewRedisScript(
 	[]string{"keySiteSlotsHash"},
-	[]string{"argSiteID", "argShardID"},
+	[]string{"argSiteID"},
 	`
 		local function parse_json(input, defaultValue)
 			local success, result = pcall(function(input) return cjson.decode(input) end, input);
@@ -245,10 +242,10 @@ var scriptGetSiteSlots = redisLuaScriptUtils.NewRedisScript(
 	`)
 
 var scriptGetAllSiteIDs = redisLuaScriptUtils.NewRedisScript(
-	[]string{"keySitesShardIdentifiers"},
+	[]string{"keySitesTimestamps"},
 	[]string{},
 	`
-		local result = redis.call('ZRANGEBYSCORE', keySitesShardIdentifiers, '-inf', '+inf', 'WITHSCORES');
+		local result = redis.call('ZRANGEBYSCORE', keySitesTimestamps, '-inf', '+inf');
 
 		if result == nil then
 			result = {};

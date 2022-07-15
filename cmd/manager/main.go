@@ -52,26 +52,23 @@ func main() {
 	options1 := createReplicaManagerOptions("main", "site1")
 	options2 := createReplicaManagerOptions("main", "site2")
 
-	options1.ShardID = 0
-	options2.ShardID = 1
-
 	client1, _ := createReplicaManagerClient(options1)
 	client2, _ := createReplicaManagerClient(options2)
 
 	balancerOptions := &redisReplicaManager.ReplicaBalancerOptions{
 		TotalSlotsCount:   512,
 		SlotReplicaCount:  1,
-		MinimumShardCount: 1,
+		MinimumSitesCount: 1,
 	}
 
 	balancer1, _ := redisReplicaManager.NewReplicaBalancer(ctx, balancerOptions)
 	balancer2, _ := redisReplicaManager.NewReplicaBalancer(ctx, balancerOptions)
 
-	manager1, _ := redisReplicaManager.NewClusterLocalNodeManager(ctx, &redisReplicaManager.ClusterNodeManagerOptions{
+	manager1, _ := redisReplicaManager.NewLocalSiteManager(ctx, &redisReplicaManager.ClusterNodeManagerOptions{
 		ReplicaManagerClient: client1,
 		ReplicaBalancer:      balancer1,
 		RefreshInterval:      time.Second * 15,
-		NotifyMissingSlotsHandler: func(ctx context.Context, manager redisReplicaManager.ClusterLocalNodeManager, slots *[]uint32) error {
+		NotifyMissingSlotsHandler: func(ctx context.Context, manager redisReplicaManager.LocalSiteManager, slots *[]uint32) error {
 			fmt.Printf("m1: missing slots: %v\n", len(*slots))
 
 			for _, slotId := range *slots {
@@ -80,7 +77,7 @@ func main() {
 
 			return nil
 		},
-		NotifyRedundantSlotsHandler: func(ctx context.Context, manager redisReplicaManager.ClusterLocalNodeManager, slots *[]uint32) error {
+		NotifyRedundantSlotsHandler: func(ctx context.Context, manager redisReplicaManager.LocalSiteManager, slots *[]uint32) error {
 			fmt.Printf("m1: redundant slots: %v\n", len(*slots))
 
 			for _, slotId := range *slots {
@@ -91,8 +88,8 @@ func main() {
 
 			return nil
 		},
-		NotifyPrimarySlotsChangedHandler: func(ctx context.Context, manager redisReplicaManager.ClusterLocalNodeManager) error {
-			slots, _ := manager.GetAllSlotsLocalNodeIsPrimaryFor(ctx)
+		NotifyPrimarySlotsChangedHandler: func(ctx context.Context, manager redisReplicaManager.LocalSiteManager) error {
+			slots, _ := manager.GetAllSlotsLocalSiteIsPrimaryFor(ctx)
 
 			fmt.Printf("m1: primary slots changed: %v\n", len(*slots))
 
@@ -100,11 +97,11 @@ func main() {
 		},
 	})
 
-	manager2, _ := redisReplicaManager.NewClusterLocalNodeManager(ctx, &redisReplicaManager.ClusterNodeManagerOptions{
+	manager2, _ := redisReplicaManager.NewLocalSiteManager(ctx, &redisReplicaManager.ClusterNodeManagerOptions{
 		ReplicaManagerClient: client2,
 		ReplicaBalancer:      balancer2,
 		RefreshInterval:      time.Second * 15,
-		NotifyMissingSlotsHandler: func(ctx context.Context, manager redisReplicaManager.ClusterLocalNodeManager, slots *[]uint32) error {
+		NotifyMissingSlotsHandler: func(ctx context.Context, manager redisReplicaManager.LocalSiteManager, slots *[]uint32) error {
 			fmt.Printf("m2: missing slots: %v\n", len(*slots))
 
 			for _, slotId := range *slots {
@@ -113,7 +110,7 @@ func main() {
 
 			return nil
 		},
-		NotifyRedundantSlotsHandler: func(ctx context.Context, manager redisReplicaManager.ClusterLocalNodeManager, slots *[]uint32) error {
+		NotifyRedundantSlotsHandler: func(ctx context.Context, manager redisReplicaManager.LocalSiteManager, slots *[]uint32) error {
 			fmt.Printf("m2: redundant slots: %v\n", len(*slots))
 
 			for _, slotId := range *slots {
@@ -124,8 +121,8 @@ func main() {
 
 			return nil
 		},
-		NotifyPrimarySlotsChangedHandler: func(ctx context.Context, manager redisReplicaManager.ClusterLocalNodeManager) error {
-			slots, _ := manager.GetAllSlotsLocalNodeIsPrimaryFor(ctx)
+		NotifyPrimarySlotsChangedHandler: func(ctx context.Context, manager redisReplicaManager.LocalSiteManager) error {
+			slots, _ := manager.GetAllSlotsLocalSiteIsPrimaryFor(ctx)
 
 			fmt.Printf("m2: primary slots changed: %v\n", len(*slots))
 
@@ -140,17 +137,17 @@ func main() {
 	fmt.Printf("manager2: %v\n", len(*slots2))
 	fmt.Printf("sum: %v\n", len(*slots1)+len(*slots2))
 
-	fmt.Printf("m1: shards for slot 1: %v\n", manager1.GetSlotShardsRouteTable(ctx, 1))
-	fmt.Printf("m2: shards for slot 1: %v\n", manager2.GetSlotShardsRouteTable(ctx, 1))
+	fmt.Printf("m1: sites for slot 1: %v\n", manager1.GetSlotRouteTable(ctx, 1))
+	fmt.Printf("m2: sites for slot 1: %v\n", manager2.GetSlotRouteTable(ctx, 1))
 
-	fmt.Printf("m1: shards for slot 497: %v\n", manager1.GetSlotShardsRouteTable(ctx, 497))
-	fmt.Printf("m2: shards for slot 497: %v\n", manager2.GetSlotShardsRouteTable(ctx, 497))
+	fmt.Printf("m1: sites for slot 497: %v\n", manager1.GetSlotRouteTable(ctx, 497))
+	fmt.Printf("m2: sites for slot 497: %v\n", manager2.GetSlotRouteTable(ctx, 497))
 
-	fmt.Printf("m1: primary shard for slot 1: %v\n", manager1.GetSlotPrimaryShardRoute(ctx, 1))
-	fmt.Printf("m2: primary shard for slot 1: %v\n", manager2.GetSlotPrimaryShardRoute(ctx, 1))
+	fmt.Printf("m1: primary site for slot 1: %v\n", manager1.GetSlotPrimarySiteRoute(ctx, 1))
+	fmt.Printf("m2: primary site for slot 1: %v\n", manager2.GetSlotPrimarySiteRoute(ctx, 1))
 
-	fmt.Printf("m1: primary shard for slot 497: %v\n", manager1.GetSlotPrimaryShardRoute(ctx, 497))
-	fmt.Printf("m2: primary shard for slot 497: %v\n", manager2.GetSlotPrimaryShardRoute(ctx, 497))
+	fmt.Printf("m1: primary site for slot 497: %v\n", manager1.GetSlotPrimarySiteRoute(ctx, 497))
+	fmt.Printf("m2: primary site for slot 497: %v\n", manager2.GetSlotPrimarySiteRoute(ctx, 497))
 
 	fmt.Printf("m1: slot for object abcdefg: %v\n", manager1.GetSlotForObject("abcdefg"))
 	fmt.Printf("m2: slot for object abcdefg: %v\n", manager2.GetSlotForObject("abcdefg"))

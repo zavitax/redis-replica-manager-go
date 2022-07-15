@@ -11,31 +11,31 @@ import (
 )
 
 type ReplicaBalancer interface {
-	AddShard(ctx context.Context, shardId uint32) error
-	RemoveShard(ctx context.Context, shardId uint32) error
+	AddSite(ctx context.Context, siteId string) error
+	RemoveSite(ctx context.Context, siteId string) error
 
-	GetShardIdentifiers() *[]uint32
+	GetSites() *[]string
 
-	GetTargetSlotsForShard(ctx context.Context, shardId uint32) *[]uint32
-	GetSlotShards(ctx context.Context, slotId uint32) *[]uint32
+	GetTargetSlotsForSite(ctx context.Context, siteId string) *[]uint32
+	GetSlotSites(ctx context.Context, slotId uint32) *[]string
 
-	GetTotalShardsCount() uint32
+	GetTotalSitesCount() uint32
 	GetTotalSlotsCount() uint32
 	GetSlotReplicaCount() uint32
 
 	GetSlotForObject(objectId string) uint32
 }
 
-type shardSlotBalancer struct {
+type siteSlotsBalancer struct {
 	ReplicaBalancer
 
 	mu   sync.RWMutex
 	opts *ReplicaBalancerOptions
 
-	shards           map[uint32]bool
-	totalShardsCount uint32
+	sites           map[string]bool
+	totalSitesCount uint32
 
-	shardsSlotsMatrixCache *[]*[]uint32
+	sitesSlotsMatrixCache *[]*[]string
 }
 
 func NewReplicaBalancer(ctx context.Context, opts *ReplicaBalancerOptions) (ReplicaBalancer, error) {
@@ -43,15 +43,15 @@ func NewReplicaBalancer(ctx context.Context, opts *ReplicaBalancerOptions) (Repl
 		return nil, err
 	}
 
-	c := &shardSlotBalancer{
-		opts:   opts,
-		shards: make(map[uint32]bool),
+	c := &siteSlotsBalancer{
+		opts:  opts,
+		sites: make(map[string]bool),
 	}
 
 	return c, nil
 }
 
-func (c *shardSlotBalancer) GetSlotForObject(objectId string) uint32 {
+func (c *siteSlotsBalancer) GetSlotForObject(objectId string) uint32 {
 	hasher := md5.New()
 	hasher.Write([]byte(objectId))
 
@@ -61,138 +61,123 @@ func (c *shardSlotBalancer) GetSlotForObject(objectId string) uint32 {
 	return uint32(id) % uint32(c.GetTotalSlotsCount())
 }
 
-func (c *shardSlotBalancer) GetShardIdentifiers() *[]uint32 {
+func (c *siteSlotsBalancer) GetSites() *[]string {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
 
-	result := make([]uint32, len(c.shards))
+	result := make([]string, len(c.sites))
 	index := 0
 
-	for shardId, _ := range c.shards {
-		result[index] = shardId
+	for siteId, _ := range c.sites {
+		result[index] = siteId
 		index++
 	}
 
 	return &result
 }
 
-func (c *shardSlotBalancer) GetSlotReplicaCount() uint32 {
+func (c *siteSlotsBalancer) GetSlotReplicaCount() uint32 {
 	return uint32(c.opts.SlotReplicaCount)
 }
 
-func (c *shardSlotBalancer) GetTotalSlotsCount() uint32 {
+func (c *siteSlotsBalancer) GetTotalSlotsCount() uint32 {
 	return uint32(c.opts.TotalSlotsCount)
 }
 
-func (c *shardSlotBalancer) GetTotalShardsCount() uint32 {
+func (c *siteSlotsBalancer) GetTotalSitesCount() uint32 {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
 
-	return c.totalShardsCount
+	return c.totalSitesCount
 }
 
-func (c *shardSlotBalancer) AddShard(ctx context.Context, shardId uint32) error {
+func (c *siteSlotsBalancer) AddSite(ctx context.Context, siteId string) error {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
-	if c.shards[shardId] {
-		return fmt.Errorf("Duplicate shard: %v", shardId)
+	if c.sites[siteId] {
+		return fmt.Errorf("Duplicate site: %v", siteId)
 	}
 
-	c.shardsSlotsMatrixCache = nil
+	c.sitesSlotsMatrixCache = nil
 
-	c.shards[shardId] = true
+	c.sites[siteId] = true
 
-	c.totalShardsCount = uint32(0)
-
-	for shardId, _ := range c.shards {
-		if shardId >= c.totalShardsCount {
-			c.totalShardsCount = shardId + 1
-		}
-	}
+	c.totalSitesCount = uint32(len(c.sites))
 
 	return nil
 }
 
-func (c *shardSlotBalancer) RemoveShard(ctx context.Context, shardId uint32) error {
+func (c *siteSlotsBalancer) RemoveSite(ctx context.Context, siteId string) error {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
-	if !c.shards[shardId] {
-		return fmt.Errorf("Unknown shard: %v", shardId)
+	if !c.sites[siteId] {
+		return fmt.Errorf("Unknown site: %v", siteId)
 	}
 
-	c.shardsSlotsMatrixCache = nil
+	c.sitesSlotsMatrixCache = nil
 
-	delete(c.shards, shardId)
+	delete(c.sites, siteId)
 
-	c.totalShardsCount = uint32(0)
-
-	for shardId, _ := range c.shards {
-		if shardId >= c.totalShardsCount {
-			c.totalShardsCount = shardId + 1
-		}
-	}
+	c.totalSitesCount = uint32(len(c.sites))
 
 	return nil
 }
 
-func (c *shardSlotBalancer) GetSlotShards(ctx context.Context, slotId uint32) *[]uint32 {
+func (c *siteSlotsBalancer) GetSlotSites(ctx context.Context, slotId uint32) *[]string {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
 
-	if c.totalShardsCount < uint32(c.opts.MinimumShardCount) {
-		// Minimum shard count condition is not satisfied - cluster is not large enough for expected load
-		return &[]uint32{}
+	if c.totalSitesCount < uint32(c.opts.MinimumSitesCount) {
+		// Minimum sites count condition is not satisfied - cluster is not large enough for expected load
+		return &[]string{}
 	}
 
 	if slotId >= uint32(c.opts.TotalSlotsCount) {
 		// Slot out of bounds
-		return &[]uint32{}
+		return &[]string{}
 	}
 
-	matrix := c.getShardSlotsMatrix()
+	matrix := c.getSitesSlotsMatrix()
 
-	//slotShardsMap := c.getAllSlotsShardsMap(matrix)
+	sites := (*matrix)[slotId]
 
-	shards := (*matrix)[slotId]
-	//shards := (*slotShardsMap)[slotId]
-
-	return shards
+	return sites
 }
 
-func (c *shardSlotBalancer) GetTargetSlotsForShard(ctx context.Context, shardId uint32) *[]uint32 {
+func (c *siteSlotsBalancer) GetTargetSlotsForSite(ctx context.Context, siteId string) *[]uint32 {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
 
-	if c.totalShardsCount < uint32(c.opts.MinimumShardCount) {
-		// Minimum shard count condition is not satisfied - cluster is not large enough for expected load
+	if c.totalSitesCount < uint32(c.opts.MinimumSitesCount) {
+		// Minimum sites count condition is not satisfied - cluster is not large enough for expected load
 		return &[]uint32{}
 	}
 
-	matrix := c.getShardSlotsMatrix()
+	matrix := c.getSitesSlotsMatrix()
 
-	slots := c.getShardSlots(matrix, shardId)
+	slots := c.getSiteSlots(matrix, siteId)
 
 	return slots
 }
 
-func (c *shardSlotBalancer) getAllSlotsShardsMap(matrix *[]*[]uint32) *map[uint32]*[]uint32 {
-	result := make(map[uint32]*[]uint32)
+func (c *siteSlotsBalancer) getAllSlotsSitesMap(matrix *[]*[]string) *map[uint32]*[]string {
+	result := make(map[uint32]*[]string)
 
-	for slotId, shards := range *matrix {
-		result[uint32(slotId)] = shards
+	for slotId, sites := range *matrix {
+		result[uint32(slotId)] = sites
 	}
 
 	return &result
 }
 
-func (c *shardSlotBalancer) getShardSlots(matrix *[]*[]uint32, shardId uint32) *[]uint32 {
+func (c *siteSlotsBalancer) getSiteSlots(matrix *[]*[]string, siteId string) *[]uint32 {
 	result := []uint32{}
 
-	for slotId, shards := range *matrix {
-		for index := 0; index < len(*shards) && index < c.opts.SlotReplicaCount; index++ {
-			if (*shards)[index] == shardId {
+	for slotId, sites := range *matrix {
+		for index := 0; index < len(*sites) && index < c.opts.SlotReplicaCount; index++ {
+			if (*sites)[index] == siteId {
 				result = append(result, uint32(slotId))
 			}
 		}
@@ -201,25 +186,25 @@ func (c *shardSlotBalancer) getShardSlots(matrix *[]*[]uint32, shardId uint32) *
 	return &result
 }
 
-type slotShardHash struct {
-	hash    uint32
-	shardId uint32
+type slotSiteHash struct {
+	hash   uint32
+	siteId string
 }
 
-func (c *shardSlotBalancer) getShardSlotsMatrix() *[]*[]uint32 {
-	if c.shardsSlotsMatrixCache != nil {
-		return c.shardsSlotsMatrixCache
+func (c *siteSlotsBalancer) getSitesSlotsMatrix() *[]*[]string {
+	if c.sitesSlotsMatrixCache != nil {
+		return c.sitesSlotsMatrixCache
 	}
 
-	result := make([]*[]uint32, c.opts.TotalSlotsCount)
+	result := make([]*[]string, c.opts.TotalSlotsCount)
 
 	for slotId := uint32(0); slotId < uint32(c.opts.TotalSlotsCount); slotId++ {
-		var list []*slotShardHash
+		var list []*slotSiteHash
 
-		for shardId, _ := range c.shards {
-			list = append(list, &slotShardHash{
-				hash:    calcShardSlotHash(shardId, slotId, uint32(c.opts.TotalSlotsCount)),
-				shardId: shardId,
+		for siteId, _ := range c.sites {
+			list = append(list, &slotSiteHash{
+				hash:   calcSiteSlotHash(siteId, slotId, uint32(c.opts.TotalSlotsCount)),
+				siteId: siteId,
 			})
 		}
 
@@ -227,27 +212,27 @@ func (c *shardSlotBalancer) getShardSlotsMatrix() *[]*[]uint32 {
 			return list[i].hash < list[j].hash
 		})
 
-		numShards := len(list)
-		if numShards > c.opts.SlotReplicaCount {
-			numShards = c.opts.SlotReplicaCount
+		numSites := len(list)
+		if numSites > c.opts.SlotReplicaCount {
+			numSites = c.opts.SlotReplicaCount
 		}
-		shards := make([]uint32, numShards)
+		sites := make([]string, numSites)
 
-		for index, shard := range list[:numShards] {
-			shards[index] = shard.shardId
+		for index, site := range list[:numSites] {
+			sites[index] = site.siteId
 		}
 
-		result[slotId] = &shards
+		result[slotId] = &sites
 	}
 
-	c.shardsSlotsMatrixCache = &result
+	c.sitesSlotsMatrixCache = &result
 
 	return &result
 }
 
-func calcShardSlotHash(shardId uint32, slotId uint32, totalSlots uint32) uint32 {
+func calcSiteSlotHash(siteId string, slotId uint32, totalSlots uint32) uint32 {
 	hasher := md5.New()
-	hasher.Write([]byte(fmt.Sprintf("%v:%v:%v", shardId, slotId, totalSlots)))
+	hasher.Write([]byte(fmt.Sprintf("%v:%v:%v", siteId, slotId, totalSlots)))
 
 	hex := hex.EncodeToString(hasher.Sum(nil))
 	id, _ := strconv.ParseInt(hex[:4], 16, 0)

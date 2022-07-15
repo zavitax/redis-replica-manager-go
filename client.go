@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"strconv"
 	"sync"
 	"time"
 
@@ -33,9 +32,8 @@ type ReplicaManagerClient interface {
 	GetSlotsRouting(ctx context.Context) (*[]*RedisReplicaManagerSiteSlot, error)
 
 	GetSiteID() string
-	GetShardID() uint32
 
-	GetAllKnownSites(ctx context.Context) (*[]*RedisReplicaManagerSite, error)
+	GetLiveSites(ctx context.Context) (*[]*RedisReplicaManagerSite, error)
 
 	Channel() <-chan *RedisReplicaManagerUpdate
 
@@ -49,8 +47,7 @@ type RedisReplicaManagerSiteSlot struct {
 }
 
 type RedisReplicaManagerSite struct {
-	SiteID  string
-	ShardID uint32
+	SiteID string
 }
 
 type RedisReplicaManagerUpdate struct {
@@ -78,8 +75,9 @@ type redisReplicaManagerClient struct {
 
 	subscriber_channel chan *RedisReplicaManagerUpdate
 
-	housekeep_context    context.Context
-	housekeep_cancelFunc context.CancelFunc
+	housekeep_done_channel chan bool
+	housekeep_context      context.Context
+	housekeep_cancelFunc   context.CancelFunc
 
 	callAddSlotSite                *redisLuaScriptUtils.CompiledRedisScript
 	callConditionalRemoveSlotSite  *redisLuaScriptUtils.CompiledRedisScript
@@ -110,7 +108,6 @@ func NewRedisReplicaManagerClient(ctx context.Context, options *ReplicaManagerOp
 		redisLuaScriptUtils.NewStaticKey("keyPubsubChannel", c.keyPubsubChannel),
 		redisLuaScriptUtils.NewStaticKey("keySiteSlotsHash", fmt.Sprintf("%s::global::sites-slots", c.options.RedisKeyPrefix)),
 		redisLuaScriptUtils.NewStaticKey("keySitesTimestamps", fmt.Sprintf("%s::global::sites-timestamps", c.options.RedisKeyPrefix)),
-		redisLuaScriptUtils.NewStaticKey("keySitesShardIdentifiers", fmt.Sprintf("%s::global::sites-shards-identifiers", c.options.RedisKeyPrefix)),
 		redisLuaScriptUtils.NewDynamicKey("keySlotSitesRolesHash", func(args *redisLuaScriptUtils.RedisScriptArguments) string {
 			return fmt.Sprintf("%s::slot::sites::%s", c.options.RedisKeyPrefix, (*args)["argSlotID"].(string))
 		}),
@@ -249,6 +246,7 @@ func NewRedisReplicaManagerClient(ctx context.Context, options *ReplicaManagerOp
 
 	c._updateSiteTimestamp(ctx, c.options.SiteID)
 
+	c.housekeep_done_channel = make(chan bool, 0)
 	c.housekeep_context, c.housekeep_cancelFunc = context.WithCancel(ctx)
 	go (func() {
 		housekeepingInterval := time.Duration(c.options.SiteTimeout / 4)
@@ -259,6 +257,8 @@ func NewRedisReplicaManagerClient(ctx context.Context, options *ReplicaManagerOp
 		for {
 			select {
 			case <-c.housekeep_context.Done():
+				c.housekeep_done_channel <- true
+				close(c.housekeep_done_channel)
 				return
 			case <-ticker.C:
 				c._housekeep(c.housekeep_context)
@@ -276,19 +276,15 @@ func (c *redisReplicaManagerClient) GetSlotsRouting(ctx context.Context) (*[]*Re
 	return c._getSlotsRoutingInfo(ctx)
 }
 
-func (c *redisReplicaManagerClient) GetAllKnownSites(ctx context.Context) (*[]*RedisReplicaManagerSite, error) {
+func (c *redisReplicaManagerClient) GetLiveSites(ctx context.Context) (*[]*RedisReplicaManagerSite, error) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
-	return c._getAllKnownSites(ctx)
+	return c._getLiveSites(ctx)
 }
 
 func (c *redisReplicaManagerClient) GetSiteID() string {
 	return c.options.SiteID
-}
-
-func (c *redisReplicaManagerClient) GetShardID() uint32 {
-	return c.options.ShardID
 }
 
 func (c *redisReplicaManagerClient) AddSlot(ctx context.Context, slotId string) error {
@@ -335,6 +331,8 @@ func (c *redisReplicaManagerClient) Close() error {
 	defer c.mu.Unlock()
 
 	c.housekeep_cancelFunc()
+
+	<-c.housekeep_done_channel
 
 	shutdown_packet := RedisReplicaManagerUpdate{
 		Event:  "site_shutdown",
@@ -437,7 +435,6 @@ func (c *redisReplicaManagerClient) _removeTimedOutSites(ctx context.Context) er
 func (c *redisReplicaManagerClient) _removeSiteSlot(ctx context.Context, siteId string, slotId string, minReplicaCount int, reason string) error {
 	args := make(redisLuaScriptUtils.RedisScriptArguments)
 	args["argSiteID"] = siteId
-	args["argShardID"] = c.options.ShardID
 	args["argSlotID"] = slotId
 	args["argMinReplicaCount"] = minReplicaCount
 	args["argReason"] = reason
@@ -480,7 +477,6 @@ func (c *redisReplicaManagerClient) _removeSiteSlot(ctx context.Context, siteId 
 func (c *redisReplicaManagerClient) _addSiteSlot(ctx context.Context, siteId string, slotId string) error {
 	args := make(redisLuaScriptUtils.RedisScriptArguments)
 	args["argSiteID"] = siteId
-	args["argShardID"] = c.options.ShardID
 	args["argSlotID"] = slotId
 	args["argCurrentTimestamp"] = currentTimestamp()
 
@@ -524,7 +520,6 @@ func (c *redisReplicaManagerClient) _addSiteSlot(ctx context.Context, siteId str
 func (c *redisReplicaManagerClient) _updateSiteTimestamp(ctx context.Context, siteId string) error {
 	args := make(redisLuaScriptUtils.RedisScriptArguments)
 	args["argSiteID"] = siteId
-	args["argShardID"] = c.options.ShardID
 	args["argCurrentTimestamp"] = currentTimestamp()
 
 	if err := c.callUpdateSiteTimestampSnippet.Run(ctx, c.redis, &args).Err(); err != nil {
@@ -549,7 +544,6 @@ func (c *redisReplicaManagerClient) _updateSiteTimestamp(ctx context.Context, si
 func (c *redisReplicaManagerClient) _getSlot(ctx context.Context, siteId string, slotId string) (*RedisReplicaManagerSiteSlot, error) {
 	args := make(redisLuaScriptUtils.RedisScriptArguments)
 	args["argSiteID"] = siteId
-	args["argShardID"] = c.options.ShardID
 	args["argSlotID"] = slotId
 	args["argCurrentTimestamp"] = currentTimestamp()
 
@@ -589,7 +583,6 @@ func (c *redisReplicaManagerClient) _getSlot(ctx context.Context, siteId string,
 func (c *redisReplicaManagerClient) _getSiteSlots(ctx context.Context, siteId string) (*[]*RedisReplicaManagerSiteSlot, error) {
 	args := make(redisLuaScriptUtils.RedisScriptArguments)
 	args["argSiteID"] = siteId
-	args["argShardID"] = c.options.ShardID
 
 	if response, err := c.callGetSiteSlots.Run(ctx, c.redis, &args).Slice(); err != nil {
 		log.Error().
@@ -643,23 +636,18 @@ func (c *redisReplicaManagerClient) _removeAllSiteSlots(ctx context.Context, sit
 	}
 }
 
-func (c *redisReplicaManagerClient) _getAllKnownSites(ctx context.Context) (*[]*RedisReplicaManagerSite, error) {
+func (c *redisReplicaManagerClient) _getLiveSites(ctx context.Context) (*[]*RedisReplicaManagerSite, error) {
 	args := make(redisLuaScriptUtils.RedisScriptArguments)
 	if response, err := c.callGetAllSiteIDs.Run(ctx, c.redis, &args).Slice(); err != nil {
 		return nil, err
 	} else {
 		result := response[0].([]interface{})
 
-		sites := make([]*RedisReplicaManagerSite, len(result)/2)
+		sites := make([]*RedisReplicaManagerSite, len(result))
 
-		for index := 0; index < len(result); index += 2 {
-			if shardId, err := strconv.ParseUint(result[index+1].(string), 10, 32); err != nil {
-				return nil, err
-			} else {
-				sites[index/2] = &RedisReplicaManagerSite{
-					SiteID:  result[index].(string),
-					ShardID: uint32(shardId),
-				}
+		for index := 0; index < len(result); index++ {
+			sites[index] = &RedisReplicaManagerSite{
+				SiteID: result[index].(string),
 			}
 		}
 
