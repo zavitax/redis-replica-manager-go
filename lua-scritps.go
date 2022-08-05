@@ -59,9 +59,19 @@ var scriptAddSlotSite = redisLuaScriptUtils.NewRedisScript(
 	`)
 
 var scriptConditionalRemoveSlotSite = redisLuaScriptUtils.NewRedisScript(
-	[]string{"keySlotSitesRolesHash", "keyPubsubChannel", "keySitesTimestamps"},
+	[]string{"keySlotSitesRolesHash", "keyPubsubChannel", "keySitesTimestamps", "keySiteSlotsHash"},
 	[]string{"argSiteID", "argSlotID", "argMinReplicaCount", "argReason"},
 	`
+		local function parse_json(input, defaultValue)
+			local success, result = pcall(function(input) return cjson.decode(input) end, input);
+			
+			if success then
+				return result;
+			else
+				return defaultValue;
+			end
+		end
+
 		local existingReplicaCount = tonumber(redis.call('HLEN', keySlotSitesRolesHash))
 		
 		if existingReplicaCount <= tonumber(argMinReplicaCount) then
@@ -102,6 +112,14 @@ var scriptConditionalRemoveSlotSite = redisLuaScriptUtils.NewRedisScript(
 			local newPrimarySiteID = remainingSites[1]
 		
 			redis.call('HSET', keySlotSitesRolesHash, newPrimarySiteID, 'primary');
+
+			-- Update new site role for this slot to 'primary'
+			local newPrimarySiteSlotsTable = parse_json(redis.call('HGET', keySiteSlotsHash, newPrimarySiteID), {});
+			if newPrimarySiteSlotsTable == nil then
+				newPrimarySiteSlotsTable = {};
+			end
+			newPrimarySiteSlotsTable[argSlotID] = 'primary';
+			redis.call('HSET', keySiteSlotsHash, newPrimarySiteID, cjson.encode(newPrimarySiteSlotsTable));
 
 			-- Announce slot primary changed
 			redis.call('PUBLISH', keyPubsubChannel, cjson.encode({
