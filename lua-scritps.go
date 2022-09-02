@@ -84,7 +84,6 @@ var scriptConditionalRemoveSlotSite = redisLuaScriptUtils.NewRedisScript(
 
 		-- Remove site & get amount of removed sites
 		local removedSitesCount = redis.call('HDEL', keySlotSitesRolesHash, argSiteID);
-		redis.call('ZREM', keySitesTimestamps, argSiteID)
 		
 		-- Get new replica count after site was removed
 		local newReplicaCount = tonumber(redis.call('HLEN', keySlotSitesRolesHash));
@@ -173,7 +172,13 @@ var scriptUpdateSiteSlotChangeSnippet = redisLuaScriptUtils.NewRedisScript(
 			newSiteSlotsTable[argSlotID] = currentSiteRoleInSlot;
 		end
 
-		redis.call('HSET', keySiteSlotsHash, argSiteID, cjson.encode(newSiteSlotsTable))
+		local newSiteSlotsTableJSON = cjson.encode(newSiteSlotsTable);
+		if newSiteSlotsTableJSON == '{}' then
+			redis.call('ZREM', keySitesTimestamps, argSiteID)
+			redis.call('HDEL', keySiteSlotsHash, argSiteID)
+		else
+			redis.call('HSET', keySiteSlotsHash, argSiteID, newSiteSlotsTableJSON)
+		end
 
 		return nil;
 	`)

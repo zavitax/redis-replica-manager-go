@@ -60,7 +60,7 @@ func main() {
 
 	balancer, _ := replicamanager.NewReplicaBalancer(context.Background(), &replicamanager.ReplicaBalancerOptions{
 		TotalSlotsCount:   5,
-		SlotReplicaCount:  1,
+		SlotReplicaCount:  2,
 		MinimumSitesCount: 1,
 	})
 
