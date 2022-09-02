@@ -115,8 +115,11 @@ func main() {
 			fmt.Printf("m1: missing slots to be added to local site: %v\n", len(*slots))
 
 			for _, slotId := range *slots {
-			  // Notify the cluster that the slot was added to the local site.
-			  // This should happen only when the slot migration has fully and successfully completed.
+				// Perform necessary operations to be able to fully serve requests for `slotId`
+			
+				// Notify the cluster that the slot was added to the local site.
+				// This should happen only when the slot is completely ready to be served.
+				// Calling `manager.RequestAddSlot()` tells the site manager "I am now ready to serve all requests for `slotId`".
 				manager.RequestAddSlot(ctx, slotId)
 			}
 
@@ -126,10 +129,13 @@ func main() {
 			fmt.Printf("m1: redundant slots to be removed from local site: %v\n", len(*slots))
 
 			for _, slotId := range *slots {
-			  // Ask the cluster manager if we are allower to remove a redundant slot
-			  // (if it satisfies minimum replica count on other sites)
+				// Ask the cluster manager if we are allowed to remove a redundant slot
+				// (if it satisfies minimum replica count on other sites)
 				if allowed, _ := manager.RequestRemoveSlot(ctx, slotId); allowed {
-          // Slot has been approved for removal by the cluster (and has bee removed from the routing table)
+					// Slot has been approved for removal by the cluster (and has bee removed from the routing table)
+
+					// Only after the cluster approved our request to remove the slot,
+					// we can release resources which were allocated to serve requests for `slotId`
 					fmt.Printf("m1: allowed to remove slot from local site: %v\n", allowed)
 				}
 			}
