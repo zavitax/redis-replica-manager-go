@@ -25,6 +25,7 @@ const (
 type ReplicaManagerClient interface {
 	AddSlot(ctx context.Context, slotId string) error
 	RemoveSlot(ctx context.Context, slotId string, minReplicaCount int, reason string) error
+	RemoveFailedSlot(ctx context.Context, slotId string, minReplicaCount int) error
 
 	GetSlot(ctx context.Context, slotId string) (*RedisReplicaManagerSiteSlot, error)
 	GetSlots(ctx context.Context) (*[]*RedisReplicaManagerSiteSlot, error)
@@ -299,6 +300,13 @@ func (c *redisReplicaManagerClient) RemoveSlot(ctx context.Context, slotId strin
 	defer c.mu.Unlock()
 
 	return c._removeSiteSlot(ctx, c.options.SiteID, slotId, minReplicaCount, reason)
+}
+
+func (c *redisReplicaManagerClient) RemoveFailedSlot(ctx context.Context, slotId string, minReplicaCount int) error {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	return c._removeSiteSlot(ctx, c.options.SiteID, slotId, minReplicaCount, "failure")
 }
 
 func (c *redisReplicaManagerClient) GetSlots(ctx context.Context) (*[]*RedisReplicaManagerSiteSlot, error) {

@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"fmt"
+	"math/rand"
 	"os"
 	"os/signal"
 	"strconv"
@@ -95,6 +96,21 @@ func main() {
 	defer manager.Close()
 
 	fmt.Println(manager.GetSlotIdentifiers(context.Background()))
+
+	go func() {
+		for {
+			time.Sleep(time.Second * time.Duration(5+rand.Intn(10)))
+
+			if slots, err := manager.GetSlotIdentifiers(context.Background()); err == nil && len(*slots) > 0 {
+				index := rand.Intn(len(*slots))
+
+				slotId := (*slots)[index]
+
+				fmt.Printf("Failing slotId %v\n", slotId)
+				manager.RemoveFailedSlot(context.Background(), slotId)
+			}
+		}
+	}()
 
 	<-ctx.Done()
 }

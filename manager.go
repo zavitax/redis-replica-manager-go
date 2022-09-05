@@ -18,7 +18,9 @@ type RouteTableEntry struct {
 
 type LocalSiteManager interface {
 	RequestAddSlot(ctx context.Context, slotId uint32) (bool, error)
+
 	RequestRemoveSlot(ctx context.Context, slotId uint32) (bool, error)
+	RemoveFailedSlot(ctx context.Context, slotId uint32) error
 
 	GetSlotIdentifiers(ctx context.Context) (*[]uint32, error)
 
@@ -262,6 +264,26 @@ func (c *localSiteManager) RequestRemoveSlot(ctx context.Context, slotId uint32)
 	}
 
 	return true, nil
+}
+
+func (c *localSiteManager) RemoveFailedSlot(ctx context.Context, slotId uint32) error {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	if c.slots[slotId] {
+		if err := c.opts.ReplicaManagerClient.RemoveFailedSlot(
+			ctx,
+			c.formatSlotId(slotId),
+			int(c.opts.ReplicaBalancer.GetSlotReplicaCount()),
+		); err != nil {
+			// Minimum replica count is not satisfied, can't remove this slot yet
+			return err
+		}
+
+		delete(c.slots, slotId)
+	}
+
+	return nil
 }
 
 func (c *localSiteManager) _housekeep(ctx context.Context) error {

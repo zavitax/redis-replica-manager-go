@@ -74,8 +74,8 @@ var scriptConditionalRemoveSlotSite = redisLuaScriptUtils.NewRedisScript(
 
 		local existingReplicaCount = tonumber(redis.call('HLEN', keySlotSitesRolesHash))
 		
-		if existingReplicaCount <= tonumber(argMinReplicaCount) then
-			-- Minimum replica count not satisfied
+		if existingReplicaCount <= tonumber(argMinReplicaCount) and argReason ~= 'failure' then
+			-- Minimum replica count not satisfied and removal reason is not slot handler failure
 			return { 0, existingReplicaCount, nil };
 		end
 		
