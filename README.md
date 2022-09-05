@@ -40,6 +40,10 @@ The application determines when migration has completed, and notifies the librar
 
 A heartbeat and a watchdog timer guarantee that faulting sites are removed from the cluster.
 
+## Faulty Slot Handler Detection
+
+If the application detects that a handler for a _slot_ has failed, it should signal the cluster of that fact by calling `LocalSiteManager.RemoveFailedSlot(context.Background(), slotId)`. This will immediately and unconditionally remove the slot from the local site, trigger failover to one of the secondary replicas, and eventually trigger a retry to add the slot to the local site.
+
 ## Dynamic Routing
 
 The library maintains a routing table that maps _slots_ to a list of _sites_ which is used to route requests for _slots_ to the right _site_.
