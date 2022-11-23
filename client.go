@@ -352,16 +352,18 @@ func (c *redisReplicaManagerClient) Close() error {
 	shutdown_json, _ := json.Marshal(shutdown_packet)
 	c.redis.Publish(context.Background(), c.keyPubsubChannel, string(shutdown_json)).Result()
 
-	err0 := c._removeAllSiteSlots(context.Background(), c.options.SiteID, "shutdown")
-
 	// time.Sleep(time.Second)
 
 	c.redis_subscriber_cancel_func()
 	c.redis_subscriber_handle.Close()
 
-	err1 := c.redis_subscriber.Close()
+	err0 := c.redis_subscriber.Close()
 
-	err2 := c.redis.Close()
+	err1 := c._removeAllSiteSlots(context.Background(), c.options.SiteID, "shutdown")
+
+	err2 := c.redis.FlushAll(context.Background()).Err()
+
+	//err3 := c.redis.Close()
 
 	if err0 != nil {
 		return err0
@@ -372,6 +374,9 @@ func (c *redisReplicaManagerClient) Close() error {
 	if err2 != nil {
 		return err2
 	}
+	//if err3 != nil {
+	//	return err2
+	//}
 
 	return nil
 }
@@ -518,6 +523,7 @@ func (c *redisReplicaManagerClient) _addSiteSlot(ctx context.Context, siteId str
 				Str("SiteID", siteId).
 				Str("SlotID", slotId).
 				Str("action", "request_add_site_slot").
+				Str("result", fmt.Sprintf("%v", result)).
 				Msg("Request slot to be added to site resulted in a NOOP")
 		}
 
@@ -637,6 +643,14 @@ func (c *redisReplicaManagerClient) _removeAllSiteSlots(ctx context.Context, sit
 					Str("action", "request_remove_all_site_slots").
 					Err(removeErr).
 					Msg("Failed requesting removal of site slot during remove all site slots operation, this error should self correct by the site timeout watchdog")
+			} else {
+				log.Error().
+					Str("SiteID", slot.SiteID).
+					Str("SlotID", slot.SlotID).
+					Str("role", slot.Role).
+					Str("action", "request_remove_all_site_slots").
+					Err(removeErr).
+					Msg("Removed site slot")
 			}
 		}
 

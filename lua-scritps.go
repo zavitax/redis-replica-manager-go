@@ -8,6 +8,7 @@ var scriptAddSlotSite = redisLuaScriptUtils.NewRedisScript(
 	[]string{"keySlotSitesRolesHash", "keyPubsubChannel"},
 	[]string{"argSiteID", "argSlotID"},
 	`
+		local debugSlotSitesRolesBefore = redis.call('HGETALL', keySlotSitesRolesHash)
 		local existingReplicaCount = tonumber(redis.call('HLEN', keySlotSitesRolesHash));
 		
 		local existingSiteRole = redis.call('HGET', keySlotSitesRolesHash, argSiteID)
@@ -27,6 +28,7 @@ var scriptAddSlotSite = redisLuaScriptUtils.NewRedisScript(
 
 			redis.call('HSET', keySlotSitesRolesHash, argSiteID, newSiteRole);
 		end
+		local debugSlotSitesRolesAfter = redis.call('HGETALL', keySlotSitesRolesHash)
 		
 		local newReplicaCount = tonumber(redis.call('HLEN', keySlotSitesRolesHash));
 		
@@ -55,7 +57,7 @@ var scriptAddSlotSite = redisLuaScriptUtils.NewRedisScript(
 			end
 		end
 		
-		return { added, newSiteRole, newReplicaCount };
+		return { added, newSiteRole, newReplicaCount, "debugSlotSitesRolesBefore", debugSlotSitesRolesBefore, "debugSlotSitesRolesAfter", debugSlotSitesRolesAfter };
 	`)
 
 var scriptConditionalRemoveSlotSite = redisLuaScriptUtils.NewRedisScript(
