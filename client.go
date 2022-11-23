@@ -523,7 +523,6 @@ func (c *redisReplicaManagerClient) _addSiteSlot(ctx context.Context, siteId str
 				Str("SiteID", siteId).
 				Str("SlotID", slotId).
 				Str("action", "request_add_site_slot").
-				Str("result", fmt.Sprintf("%v", result)).
 				Msg("Request slot to be added to site resulted in a NOOP")
 		}
 
