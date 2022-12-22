@@ -3,10 +3,8 @@ package main
 import (
 	"context"
 	"fmt"
-	"math/rand"
 	"os"
 	"os/signal"
-	"strconv"
 	"syscall"
 	"time"
 
@@ -28,7 +26,7 @@ var (
 func createClient(siteId string) (replicamanager.ReplicaManagerClient, error) {
 	return replicamanager.NewRedisReplicaManagerClient(context.Background(), &replicamanager.ReplicaManagerOptions{
 		RedisOptions:   redisOptions,
-		SiteTimeout:    time.Second * 5,
+		SiteTimeout:    time.Second * 60,
 		RedisKeyPrefix: fmt.Sprintf("shardmanager::shardsim"),
 		SiteID:         siteId,
 	})
@@ -44,23 +42,22 @@ func listenForSignals(cancel context.CancelFunc) {
 func main() {
 	zerolog.SetGlobalLevel(zerolog.Disabled)
 
-	ctx, _ := context.WithCancel(context.Background())
-	//ctx, cancel := context.WithCancel(context.Background())
-	//go listenForSignals(cancel)
+	//ctx, _ := context.WithCancel(context.Background())
+	ctx, cancel := context.WithCancel(context.Background())
+	go listenForSignals(cancel)
 
-	var shardId int
+	var shardId string
 	if len(os.Args) > 1 {
-		shardId, _ = strconv.Atoi(os.Args[1])
+		shardId = os.Args[1]
 	}
 
-	client, err := createClient(fmt.Sprintf("shard-%d", shardId))
+	client, err := createClient(shardId)
 	if err != nil {
 		panic(err)
 	}
-	defer client.Close()
 
 	balancer, _ := replicamanager.NewReplicaBalancer(context.Background(), &replicamanager.ReplicaBalancerOptions{
-		TotalSlotsCount:   5,
+		TotalSlotsCount:   200,
 		SlotReplicaCount:  2,
 		MinimumSitesCount: 1,
 	})
@@ -68,18 +65,23 @@ func main() {
 	manager, _ = replicamanager.NewLocalSiteManager(context.Background(), &replicamanager.ClusterNodeManagerOptions{
 		ReplicaManagerClient: client,
 		ReplicaBalancer:      balancer,
-		RefreshInterval:      time.Second * 15,
+		RefreshInterval:      time.Second * 10,
 		NotifyMissingSlotsHandler: func(ctx context.Context, manager replicamanager.LocalSiteManager, slots *[]uint32) error {
-			fmt.Println("missing slots:", *slots)
+			fmt.Println("missing ", len(*slots), " slots:", *slots)
 			for _, slot := range *slots {
-				success, err := manager.RequestAddSlot(ctx, slot)
+				go func(slot uint32) {
+					fmt.Printf("Waiting to add slot %v ...\n", slot)
+					time.Sleep(time.Second * 5)
 
-				fmt.Printf("manager.RequestAddSlot: slot: %v; success: %v; err: %v\n", slot, success, err)
+					success, err := manager.RequestAddSlot(ctx, slot)
+
+					fmt.Printf("manager.RequestAddSlot: slot: %v; success: %v; err: %v\n", slot, success, err)
+				}(slot)
 			}
 			return nil
 		},
 		NotifyRedundantSlotsHandler: func(ctx context.Context, manager replicamanager.LocalSiteManager, slots *[]uint32) error {
-			fmt.Println("redundant slots:", *slots)
+			fmt.Println("redundant ", len(*slots), " slots:", *slots)
 			for _, slot := range *slots {
 				success, err := manager.RequestRemoveSlot(ctx, slot)
 
@@ -93,24 +95,27 @@ func main() {
 			return nil
 		},
 	})
-	defer manager.Close()
 
 	fmt.Println(manager.GetSlotIdentifiers(context.Background()))
 
-	go func() {
-		for {
-			time.Sleep(time.Second * time.Duration(5+rand.Intn(10)))
+	/*
+		go func() {
+			for {
+				time.Sleep(time.Second * time.Duration(5+rand.Intn(10)))
 
-			if slots, err := manager.GetSlotIdentifiers(context.Background()); err == nil && len(*slots) > 0 {
-				index := rand.Intn(len(*slots))
+				if slots, err := manager.GetSlotIdentifiers(context.Background()); err == nil && len(*slots) > 0 {
+					index := rand.Intn(len(*slots))
 
-				slotId := (*slots)[index]
+					slotId := (*slots)[index]
 
-				fmt.Printf("Failing slotId %v\n", slotId)
-				manager.RemoveFailedSlot(context.Background(), slotId)
+					fmt.Printf("Failing slotId %v\n", slotId)
+					manager.RemoveFailedSlot(context.Background(), slotId)
+				}
 			}
-		}
-	}()
+		}()*/
 
 	<-ctx.Done()
+	fmt.Println("manager.Close()")
+	manager.Close()
+	fmt.Println("All done.")
 }

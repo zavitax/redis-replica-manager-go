@@ -467,23 +467,28 @@ func (c *redisReplicaManagerClient) _removeSiteSlot(ctx context.Context, siteId 
 		result := response[0].([]interface{})
 
 		removedSitesCount := result[0].(int64)
-		newReplicaCount := result[1].(int64)
-		newPrimarySiteID := ""
-		if len(result) > 2 && result[2] != nil {
-			newPrimarySiteID = result[2].(string)
+
+		if removedSitesCount > 0 {
+			newReplicaCount := result[1].(int64)
+			newPrimarySiteID := ""
+			if len(result) > 2 && result[2] != nil {
+				newPrimarySiteID = result[2].(string)
+			}
+
+			log.Info().
+				Str("SiteID", siteId).
+				Str("SlotID", slotId).
+				Int64("removedSitesCount", removedSitesCount).
+				Int64("newReplicaCount", newReplicaCount).
+				Str("newPrimarySiteID", newPrimarySiteID).
+				Str("action", "request_remove_site_slot").
+				Str("reason", reason).
+				Msg("Requested slot to be removed from site")
+
+			return nil
+		} else {
+			return fmt.Errorf("The cluster does not allow removing this Site '%v' from Slot %v", siteId, slotId)
 		}
-
-		log.Info().
-			Str("SiteID", siteId).
-			Str("SlotID", slotId).
-			Int64("removedSitesCount", removedSitesCount).
-			Int64("newReplicaCount", newReplicaCount).
-			Str("newPrimarySiteID", newPrimarySiteID).
-			Str("action", "request_remove_site_slot").
-			Str("reason", reason).
-			Msg("Requested slot to be removed from site")
-
-		return nil
 	}
 }
 
