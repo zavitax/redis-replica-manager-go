@@ -235,13 +235,13 @@ func (c *localSiteManager) RequestAddSlot(ctx context.Context, slotId uint32) (b
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
-	if !c.slots[slotId] {
-		if err := c.opts.ReplicaManagerClient.AddSlot(ctx, c.formatSlotId(slotId)); err != nil {
-			return false, err
-		}
-
-		c.slots[slotId] = true
+	//if !c.slots[slotId] {
+	if err := c.opts.ReplicaManagerClient.AddSlot(ctx, c.formatSlotId(slotId)); err != nil {
+		return false, err
 	}
+
+	c.slots[slotId] = true
+	//}
 
 	return true, nil
 }
@@ -250,18 +250,18 @@ func (c *localSiteManager) RequestRemoveSlot(ctx context.Context, slotId uint32)
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
-	if c.slots[slotId] {
-		if err := c.opts.ReplicaManagerClient.RemoveSlot(
-			ctx,
-			c.formatSlotId(slotId),
-			int(c.opts.ReplicaBalancer.GetSlotReplicaCount()),
-			"moved"); err != nil {
-			// Minimum replica count is not satisfied, can't remove this slot yet
-			return false, err
-		}
-
-		delete(c.slots, slotId)
+	//if c.slots[slotId] {
+	if err := c.opts.ReplicaManagerClient.RemoveSlot(
+		ctx,
+		c.formatSlotId(slotId),
+		int(c.opts.ReplicaBalancer.GetSlotReplicaCount()),
+		"moved"); err != nil {
+		// Minimum replica count is not satisfied, can't remove this slot yet
+		return false, err
 	}
+
+	delete(c.slots, slotId)
+	//}
 
 	return true, nil
 }
@@ -270,18 +270,18 @@ func (c *localSiteManager) RemoveFailedSlot(ctx context.Context, slotId uint32) 
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
-	if c.slots[slotId] {
-		if err := c.opts.ReplicaManagerClient.RemoveFailedSlot(
-			ctx,
-			c.formatSlotId(slotId),
-			int(c.opts.ReplicaBalancer.GetSlotReplicaCount()),
-		); err != nil {
-			// Minimum replica count is not satisfied, can't remove this slot yet
-			return err
-		}
-
-		delete(c.slots, slotId)
+	//if c.slots[slotId] {
+	if err := c.opts.ReplicaManagerClient.RemoveFailedSlot(
+		ctx,
+		c.formatSlotId(slotId),
+		int(c.opts.ReplicaBalancer.GetSlotReplicaCount()),
+	); err != nil {
+		// Minimum replica count is not satisfied, can't remove this slot yet
+		return err
 	}
+
+	delete(c.slots, slotId)
+	//}
 
 	return nil
 }
@@ -321,6 +321,23 @@ func (c *localSiteManager) _housekeep(ctx context.Context) error {
 		}
 	}
 
+	// Update local list of slots to match redis
+
+	slots := make(map[uint32]bool)
+
+	if redisSlots, err := c.opts.ReplicaManagerClient.GetSlots(ctx); err != nil {
+		return err
+	} else {
+		for _, slot := range *redisSlots {
+			if slotId, err := c.parseSlotId(slot.SlotID); err != nil {
+				return err
+			} else {
+				slots[slotId] = true
+			}
+		}
+		c.slots = slots
+	}
+
 	// Step 2: make sure slots are correctly distributed between sites
 
 	wantSlots := c.opts.ReplicaBalancer.GetTargetSlotsForSite(ctx, c.opts.ReplicaManagerClient.GetSiteID())
@@ -332,13 +349,13 @@ func (c *localSiteManager) _housekeep(ctx context.Context) error {
 	for _, slotId := range *wantSlots {
 		wantSlotsMap[slotId] = true
 
-		if !c.slots[slotId] {
+		if !slots[slotId] {
 			// Missing
 			missingSlots = append(missingSlots, slotId)
 		}
 	}
 
-	for slotId, _ := range c.slots {
+	for slotId, _ := range slots {
 		if !wantSlotsMap[slotId] {
 			// Redundant
 			redundantSlots = append(redundantSlots, slotId)
