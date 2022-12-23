@@ -57,7 +57,7 @@ func main() {
 	}
 
 	balancer, _ := replicamanager.NewReplicaBalancer(context.Background(), &replicamanager.ReplicaBalancerOptions{
-		TotalSlotsCount:   200,
+		TotalSlotsCount:   20,
 		SlotReplicaCount:  2,
 		MinimumSitesCount: 1,
 	})
@@ -90,13 +90,23 @@ func main() {
 			return nil
 		},
 		NotifyPrimarySlotsChangedHandler: func(ctx context.Context, manager replicamanager.LocalSiteManager) error {
-			slots, _ := manager.GetAllSlotsLocalSiteIsPrimaryFor(ctx)
-			fmt.Println("primary slots:", slots)
+			// slots, _ := manager.GetAllSlotsLocalSiteIsPrimaryFor(ctx)
+			// fmt.Println("primary slots:", slots)
 			return nil
 		},
 	})
 
 	fmt.Println(manager.GetSlotIdentifiers(context.Background()))
+
+	go func() {
+		for {
+			if slots, err := manager.GetSlotIdentifiers(context.Background()); err == nil && len(*slots) > 0 {
+				fmt.Printf("slots: [%v]\n", slots)
+			}
+
+			time.Sleep(time.Second * 1)
+		}
+	}()
 
 	/*
 		go func() {

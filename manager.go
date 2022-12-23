@@ -45,7 +45,6 @@ type localSiteManager struct {
 	housekeep_context    context.Context
 	housekeep_cancelFunc context.CancelFunc
 
-	slots           map[uint32]bool
 	primarySlots    *bit.Set
 	slotsRoutingMap *map[uint32][]*RouteTableEntry
 
@@ -76,7 +75,6 @@ func NewLocalSiteManager(ctx context.Context, opts *ClusterNodeManagerOptions) (
 
 	c := &localSiteManager{
 		opts:            opts,
-		slots:           make(map[uint32]bool),
 		slotsRoutingMap: &slotsRoutingMap,
 		primarySlots:    bit.New(),
 		siteId:          opts.ReplicaManagerClient.GetSiteID(),
@@ -118,7 +116,6 @@ func (c *localSiteManager) Close() error {
 	<-c.housekeep_done_channel
 
 	c.primarySlots = bit.New()
-	c.slots = make(map[uint32]bool)
 
 	return c.opts.ReplicaManagerClient.Close()
 }
@@ -220,28 +217,30 @@ func (c *localSiteManager) GetSlotIdentifiers(ctx context.Context) (*[]uint32, e
 	c.mu.RLock()
 	defer c.mu.RUnlock()
 
-	result := make([]uint32, len(c.slots))
+	if redisSlots, err := c.opts.ReplicaManagerClient.GetSlots(ctx); err != nil {
+		return nil, err
+	} else {
+		result := make([]uint32, len(*redisSlots))
 
-	index := 0
-	for slotId, _ := range c.slots {
-		result[index] = slotId
-		index++
+		for index, slot := range *redisSlots {
+			if slotId, err := c.parseSlotId(slot.SlotID); err != nil {
+				return nil, err
+			} else {
+				result[index] = slotId
+			}
+		}
+
+		return &result, nil
 	}
-
-	return &result, nil
 }
 
 func (c *localSiteManager) RequestAddSlot(ctx context.Context, slotId uint32) (bool, error) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
-	//if !c.slots[slotId] {
 	if err := c.opts.ReplicaManagerClient.AddSlot(ctx, c.formatSlotId(slotId)); err != nil {
 		return false, err
 	}
-
-	c.slots[slotId] = true
-	//}
 
 	return true, nil
 }
@@ -250,7 +249,6 @@ func (c *localSiteManager) RequestRemoveSlot(ctx context.Context, slotId uint32)
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
-	//if c.slots[slotId] {
 	if err := c.opts.ReplicaManagerClient.RemoveSlot(
 		ctx,
 		c.formatSlotId(slotId),
@@ -260,9 +258,6 @@ func (c *localSiteManager) RequestRemoveSlot(ctx context.Context, slotId uint32)
 		return false, err
 	}
 
-	delete(c.slots, slotId)
-	//}
-
 	return true, nil
 }
 
@@ -270,7 +265,6 @@ func (c *localSiteManager) RemoveFailedSlot(ctx context.Context, slotId uint32) 
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
-	//if c.slots[slotId] {
 	if err := c.opts.ReplicaManagerClient.RemoveFailedSlot(
 		ctx,
 		c.formatSlotId(slotId),
@@ -279,9 +273,6 @@ func (c *localSiteManager) RemoveFailedSlot(ctx context.Context, slotId uint32) 
 		// Minimum replica count is not satisfied, can't remove this slot yet
 		return err
 	}
-
-	delete(c.slots, slotId)
-	//}
 
 	return nil
 }
@@ -335,7 +326,6 @@ func (c *localSiteManager) _housekeep(ctx context.Context) error {
 				slots[slotId] = true
 			}
 		}
-		c.slots = slots
 	}
 
 	// Step 2: make sure slots are correctly distributed between sites

@@ -549,11 +549,11 @@ func (c *redisReplicaManagerClient) _updateSiteTimestamp(ctx context.Context, si
 
 		return err
 	} else {
-		log.Trace().
-			Str("SiteID", siteId).
-			Str("action", "request_update_site_timestamp").
-			Err(err).
-			Msg("Updated site timestamp (heartbeat)")
+		/*log.Trace().
+		Str("SiteID", siteId).
+		Str("action", "request_update_site_timestamp").
+		Err(err).
+		Msg("Updated site timestamp (heartbeat)")*/
 
 		return nil
 	}
