@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"os/signal"
+	"sort"
 	"syscall"
 	"time"
 
@@ -27,7 +28,7 @@ var (
 func createClient(siteId string) (replicamanager.ReplicaManagerClient, error) {
 	return replicamanager.NewRedisReplicaManagerClient(context.Background(), &replicamanager.ReplicaManagerOptions{
 		RedisOptions:   redisOptions,
-		SiteTimeout:    time.Second * 60,
+		SiteTimeout:    time.Second * 15,
 		RedisKeyPrefix: fmt.Sprintf("shardmanager::shardsim"),
 		SiteID:         siteId,
 	})
@@ -58,7 +59,7 @@ func main() {
 	}
 
 	balancer, _ := replicamanager.NewReplicaBalancer(context.Background(), &replicamanager.ReplicaBalancerOptions{
-		TotalSlotsCount:   20,
+		TotalSlotsCount:   200,
 		SlotReplicaCount:  2,
 		MinimumSitesCount: 1,
 	})
@@ -100,6 +101,8 @@ func main() {
 					// Slot is already in group
 					fmt.Println("Missing Slot is already in group: ", slot, " isReady: ", s.IsReady())
 
+					// !!! IMPORTANT !!!
+					// If we comment out this block, the cluster can become out-of-sync with actual local state
 					if s.IsReady() {
 						success, err := manager.RequestAddSlot(ctx, slot)
 						fmt.Printf("manager.RequestAddSlot: slot: %v; success: %v; err: %v\n", slot, success, err)
@@ -132,7 +135,13 @@ func main() {
 	go func() {
 		for {
 			if slots, err := state.manager.GetSlotIdentifiers(context.Background()); err == nil && len(*slots) > 0 {
-				fmt.Printf("slots: [%v]\n", slots)
+				sorted := make([]int, len(*slots))
+				for i, slot := range *slots {
+					sorted[i] = int(slot)
+				}
+				sort.Ints(sorted)
+
+				fmt.Printf("slots (%v): %v\n", len(sorted), sorted)
 			}
 
 			time.Sleep(time.Second * 1)
