@@ -5,12 +5,14 @@ import (
 	"fmt"
 	"os"
 	"os/signal"
+	"sort"
 	"syscall"
 	"time"
 
 	"github.com/go-redis/redis/v8"
 	"github.com/rs/zerolog"
 	replicamanager "github.com/zavitax/redis-replica-manager-go"
+	"github.com/zavitax/redis-replica-manager-go/internal/fixtures"
 )
 
 var (
@@ -20,13 +22,13 @@ var (
 		DB:       0,
 	}
 
-	manager replicamanager.LocalSiteManager
+	// manager replicamanager.LocalSiteManager
 )
 
 func createClient(siteId string) (replicamanager.ReplicaManagerClient, error) {
 	return replicamanager.NewRedisReplicaManagerClient(context.Background(), &replicamanager.ReplicaManagerOptions{
 		RedisOptions:   redisOptions,
-		SiteTimeout:    time.Second * 60,
+		SiteTimeout:    time.Second * 15,
 		RedisKeyPrefix: fmt.Sprintf("shardmanager::shardsim"),
 		SiteID:         siteId,
 	})
@@ -57,26 +59,55 @@ func main() {
 	}
 
 	balancer, _ := replicamanager.NewReplicaBalancer(context.Background(), &replicamanager.ReplicaBalancerOptions{
-		TotalSlotsCount:   20,
+		TotalSlotsCount:   200,
 		SlotReplicaCount:  2,
 		MinimumSitesCount: 1,
 	})
 
-	manager, _ = replicamanager.NewLocalSiteManager(context.Background(), &replicamanager.ClusterNodeManagerOptions{
+	type stateStruct struct {
+		manager replicamanager.LocalSiteManager
+		group   fixtures.SlotsGroup
+	}
+
+	state := &stateStruct{}
+
+	state.group = fixtures.NewSlotsGroup(time.Second*30, time.Second*5, func(slot fixtures.Slot, status string) {
+		// Slot ready
+		fmt.Println("Slot ", slot.ID(), " is ", status)
+
+		switch status {
+		case fixtures.SLOT_STATE_STARTED:
+		case fixtures.SLOT_STATE_READY:
+			success, err := state.manager.RequestAddSlot(ctx, slot.ID())
+			fmt.Printf("manager.RequestAddSlot: slot: %v; success: %v; err: %v\n", slot, success, err)
+		case fixtures.SLOT_STATE_STOPPED:
+			//success, err := state.manager.RequestRemoveSlot(ctx, slot.ID())
+			//fmt.Printf("manager.RequestRemoveSlot: slot: %v; success: %v; err: %v\n", slot, success, err)
+		}
+	})
+
+	state.manager, _ = replicamanager.NewLocalSiteManager(context.Background(), &replicamanager.ClusterNodeManagerOptions{
 		ReplicaManagerClient: client,
 		ReplicaBalancer:      balancer,
 		RefreshInterval:      time.Second * 10,
 		NotifyMissingSlotsHandler: func(ctx context.Context, manager replicamanager.LocalSiteManager, slots *[]uint32) error {
 			fmt.Println("missing ", len(*slots), " slots:", *slots)
 			for _, slot := range *slots {
-				go func(slot uint32) {
-					fmt.Printf("Waiting to add slot %v ...\n", slot)
-					time.Sleep(time.Second * 5)
+				//success, err := manager.RequestAddSlot(ctx, slot)
+				//fmt.Printf("manager.RequestAddSlot: slot: %v; success: %v; err: %v\n", slot, success, err)
 
-					success, err := manager.RequestAddSlot(ctx, slot)
+				s, added := state.group.AddSlot(slot)
+				if !added {
+					// Slot is already in group
+					fmt.Println("Missing Slot is already in group: ", slot, " isReady: ", s.IsReady())
 
-					fmt.Printf("manager.RequestAddSlot: slot: %v; success: %v; err: %v\n", slot, success, err)
-				}(slot)
+					// !!! IMPORTANT !!!
+					// If we comment out this block, the cluster can become out-of-sync with actual local state
+					if s.IsReady() {
+						success, err := manager.RequestAddSlot(ctx, slot)
+						fmt.Printf("manager.RequestAddSlot: slot: %v; success: %v; err: %v\n", slot, success, err)
+					}
+				}
 			}
 			return nil
 		},
@@ -84,8 +115,11 @@ func main() {
 			fmt.Println("redundant ", len(*slots), " slots:", *slots)
 			for _, slot := range *slots {
 				success, err := manager.RequestRemoveSlot(ctx, slot)
-
 				fmt.Printf("manager.RequestRemoveSlot: slot: %v; success: %v; err: %v\n", slot, success, err)
+
+				if success {
+					state.group.RemoveSlot(slot)
+				}
 			}
 			return nil
 		},
@@ -96,12 +130,18 @@ func main() {
 		},
 	})
 
-	fmt.Println(manager.GetSlotIdentifiers(context.Background()))
+	fmt.Println(state.manager.GetSlotIdentifiers(context.Background()))
 
 	go func() {
 		for {
-			if slots, err := manager.GetSlotIdentifiers(context.Background()); err == nil && len(*slots) > 0 {
-				fmt.Printf("slots: [%v]\n", slots)
+			if slots, err := state.manager.GetSlotIdentifiers(context.Background()); err == nil && len(*slots) > 0 {
+				sorted := make([]int, len(*slots))
+				for i, slot := range *slots {
+					sorted[i] = int(slot)
+				}
+				sort.Ints(sorted)
+
+				fmt.Printf("slots (%v): %v\n", len(sorted), sorted)
 			}
 
 			time.Sleep(time.Second * 1)
@@ -113,19 +153,20 @@ func main() {
 			for {
 				time.Sleep(time.Second * time.Duration(5+rand.Intn(10)))
 
-				if slots, err := manager.GetSlotIdentifiers(context.Background()); err == nil && len(*slots) > 0 {
+				if slots, err := state.manager.GetSlotIdentifiers(context.Background()); err == nil && len(*slots) > 0 {
 					index := rand.Intn(len(*slots))
 
 					slotId := (*slots)[index]
 
 					fmt.Printf("Failing slotId %v\n", slotId)
-					manager.RemoveFailedSlot(context.Background(), slotId)
+					state.manager.RemoveFailedSlot(context.Background(), slotId)
 				}
 			}
 		}()*/
 
 	<-ctx.Done()
 	fmt.Println("manager.Close()")
-	manager.Close()
+	state.group.Close()
+	state.manager.Close()
 	fmt.Println("All done.")
 }
