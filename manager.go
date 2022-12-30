@@ -80,7 +80,7 @@ func NewLocalSiteManager(ctx context.Context, opts *ClusterNodeManagerOptions) (
 		siteId:          opts.ReplicaManagerClient.GetSiteID(),
 	}
 
-	// c._housekeep(ctx)
+	c._housekeep(ctx)
 
 	c.housekeep_done_channel = make(chan bool)
 	c.housekeep_context, c.housekeep_cancelFunc = context.WithCancel(ctx)
