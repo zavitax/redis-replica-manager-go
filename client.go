@@ -180,6 +180,8 @@ func NewRedisReplicaManagerClient(ctx context.Context, options *ReplicaManagerOp
 	c.redis_subscriber_context, c.redis_subscriber_cancel_func = context.WithCancel(ctx)
 	c.redis_subscriber_handle = c.redis_subscriber.Subscribe(c.redis_subscriber_context, c.keyPubsubChannel)
 
+	c._housekeep(ctx)
+
 	go (func(subscriber_channel <-chan *redis.Message) {
 		// Listen for client timeout messages
 		for msg := range subscriber_channel {
@@ -245,7 +247,7 @@ func NewRedisReplicaManagerClient(ctx context.Context, options *ReplicaManagerOp
 		}
 	}
 
-	c._updateSiteTimestamp(ctx, c.options.SiteID)
+	c._housekeep(ctx)
 
 	c.housekeep_done_channel = make(chan bool, 0)
 	c.housekeep_context, c.housekeep_cancelFunc = context.WithCancel(ctx)
@@ -361,8 +363,6 @@ func (c *redisReplicaManagerClient) Close() error {
 
 	err1 := c._removeAllSiteSlots(context.Background(), c.options.SiteID, "shutdown")
 
-	err2 := c.redis.FlushAll(context.Background()).Err()
-
 	//err3 := c.redis.Close()
 
 	if err0 != nil {
@@ -370,9 +370,6 @@ func (c *redisReplicaManagerClient) Close() error {
 	}
 	if err1 != nil {
 		return err1
-	}
-	if err2 != nil {
-		return err2
 	}
 	//if err3 != nil {
 	//	return err2

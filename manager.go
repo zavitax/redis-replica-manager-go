@@ -80,7 +80,7 @@ func NewLocalSiteManager(ctx context.Context, opts *ClusterNodeManagerOptions) (
 		siteId:          opts.ReplicaManagerClient.GetSiteID(),
 	}
 
-	c._housekeep(ctx)
+	// c._housekeep(ctx)
 
 	c.housekeep_done_channel = make(chan bool)
 	c.housekeep_context, c.housekeep_cancelFunc = context.WithCancel(ctx)
@@ -286,8 +286,6 @@ func (c *localSiteManager) _housekeep(ctx context.Context) error {
 		liveSites = liveSitesResponse
 	}
 
-	c.mu.RLock()
-
 	// Step 1: make sure we are using an up-to-date list of sites
 
 	knownSites := c.opts.ReplicaBalancer.GetSites()
@@ -312,55 +310,10 @@ func (c *localSiteManager) _housekeep(ctx context.Context) error {
 		}
 	}
 
-	// Update local list of slots to match redis
-
-	slots := make(map[uint32]bool)
-
-	if redisSlots, err := c.opts.ReplicaManagerClient.GetSlots(ctx); err != nil {
-		return err
-	} else {
-		for _, slot := range *redisSlots {
-			if slotId, err := c.parseSlotId(slot.SlotID); err != nil {
-				return err
-			} else {
-				slots[slotId] = true
-			}
-		}
-	}
-
 	// Step 2: make sure slots are correctly distributed between sites
 
-	wantSlots := c.opts.ReplicaBalancer.GetTargetSlotsForSite(ctx, c.opts.ReplicaManagerClient.GetSiteID())
-	wantSlotsMap := make(map[uint32]bool)
-
-	missingSlots := []uint32{}
-	redundantSlots := []uint32{}
-
-	for _, slotId := range *wantSlots {
-		wantSlotsMap[slotId] = true
-
-		if !slots[slotId] {
-			// Missing
-			missingSlots = append(missingSlots, slotId)
-		}
-	}
-
-	for slotId, _ := range slots {
-		if !wantSlotsMap[slotId] {
-			// Redundant
-			redundantSlots = append(redundantSlots, slotId)
-		}
-	}
-
-	c.mu.RUnlock()
-
-	if len(redundantSlots) > 0 && c.opts.NotifyRedundantSlotsHandler != nil {
-		c.opts.NotifyRedundantSlotsHandler(ctx, c, &redundantSlots)
-	}
-
-	if len(missingSlots) > 0 && c.opts.NotifyMissingSlotsHandler != nil {
-		c.opts.NotifyMissingSlotsHandler(ctx, c, &missingSlots)
-	}
+	c._housekeep_removeRedundantSlots_redis(ctx)
+	c._housekeep_addMissingSlots_redis(ctx)
 
 	if err := c._evalPrimarySlots(ctx); err != nil {
 		log.Error().
@@ -369,14 +322,82 @@ func (c *localSiteManager) _housekeep(ctx context.Context) error {
 			Msg("Failed evaluating changes to list of slots local site is the primary site for")
 	}
 
-	c.mu.RLock()
+	c.mu.Lock()
 	if err := c._evalSlotsRouting(ctx); err != nil {
 		log.Error().
 			Str("action", "housekeep_refresh_slots_routing_table").
 			Err(err).
 			Msg("Failed refreshing slots routing table")
 	}
-	c.mu.RUnlock()
+	c.mu.Unlock()
+
+	return nil
+}
+
+func (c *localSiteManager) _housekeep_addMissingSlots_redis(ctx context.Context) error {
+	// Get redis slots
+	redisSlots, err := c.GetSlotIdentifiers(ctx)
+
+	if err != nil {
+		return err
+	}
+
+	redisSlotsMap := make(map[uint32]bool)
+
+	for _, slotId := range *redisSlots {
+		redisSlotsMap[slotId] = true
+	}
+
+	// Get slots we want
+	wantSlots := c.opts.ReplicaBalancer.GetTargetSlotsForSite(ctx, c.opts.ReplicaManagerClient.GetSiteID())
+
+	// Calculate missing slots
+	missingSlots := make([]uint32, 0)
+
+	for _, slotId := range *wantSlots {
+		if !redisSlotsMap[slotId] {
+			missingSlots = append(missingSlots, slotId)
+		}
+	}
+
+	// Notify missing slots
+	if len(missingSlots) > 0 && c.opts.NotifyMissingSlotsHandler != nil {
+		return c.opts.NotifyMissingSlotsHandler(ctx, c, &missingSlots)
+	}
+
+	return nil
+}
+
+func (c *localSiteManager) _housekeep_removeRedundantSlots_redis(ctx context.Context) error {
+	// Get slots we want
+	wantSlots := c.opts.ReplicaBalancer.GetTargetSlotsForSite(ctx, c.opts.ReplicaManagerClient.GetSiteID())
+
+	wantSlotsMap := make(map[uint32]bool)
+
+	for _, slotId := range *wantSlots {
+		wantSlotsMap[slotId] = true
+	}
+
+	// Get redis slots
+	redisSlots, err := c.GetSlotIdentifiers(ctx)
+
+	if err != nil {
+		return err
+	}
+
+	// Calculate redundant slots
+	redundantSlots := make([]uint32, 0)
+
+	for _, slotId := range *redisSlots {
+		if !wantSlotsMap[slotId] {
+			redundantSlots = append(redundantSlots, slotId)
+		}
+	}
+
+	// Notify redundant slots
+	if len(redundantSlots) > 0 && c.opts.NotifyRedundantSlotsHandler != nil {
+		return c.opts.NotifyRedundantSlotsHandler(ctx, c, &redundantSlots)
+	}
 
 	return nil
 }
