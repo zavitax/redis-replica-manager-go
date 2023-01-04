@@ -107,8 +107,10 @@ func TestPrimaryChange(t *testing.T) {
 
 	client1.Close()
 
+	mutex.Lock()
 	curr := eventCount["slot_primary_change"]
 	expected := 4
+	mutex.Unlock()
 
 	if curr != expected {
 		t.Errorf("eventCount: %v, expected: %v", curr, expected)
