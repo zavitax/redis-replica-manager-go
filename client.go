@@ -74,7 +74,8 @@ type redisReplicaManagerClient struct {
 	redis_subscriber_context     context.Context
 	redis_subscriber_cancel_func context.CancelFunc
 
-	subscriber_channel chan *RedisReplicaManagerUpdate
+	subscriber_channel    chan *RedisReplicaManagerUpdate
+	subscriber_channel_mu sync.RWMutex
 
 	housekeep_done_channel chan bool
 	housekeep_context      context.Context
@@ -209,16 +210,20 @@ func NewRedisReplicaManagerClient(ctx context.Context, options *ReplicaManagerOp
 					}
 				}
 
+				c.subscriber_channel_mu.RLock()
 				if c.subscriber_channel != nil {
 					c.subscriber_channel <- &packet
 				}
+				c.subscriber_channel_mu.RUnlock()
 			}
 		}
 
+		c.subscriber_channel_mu.Lock()
 		if c.subscriber_channel != nil {
 			close(c.subscriber_channel)
 			c.subscriber_channel = nil
 		}
+		c.subscriber_channel_mu.Unlock()
 	})(c.redis_subscriber_handle.Channel())
 
 	init_packet := RedisReplicaManagerUpdate{
@@ -327,6 +332,8 @@ func (c *redisReplicaManagerClient) GetSlot(ctx context.Context, slotId string) 
 
 func (c *redisReplicaManagerClient) Channel() <-chan *RedisReplicaManagerUpdate {
 	c.mu.Lock()
+	c.subscriber_channel_mu.Lock()
+	defer c.subscriber_channel_mu.Unlock()
 	defer c.mu.Unlock()
 
 	if c.subscriber_channel == nil {
