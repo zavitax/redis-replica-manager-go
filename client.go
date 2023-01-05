@@ -344,13 +344,6 @@ func (c *redisReplicaManagerClient) Channel() <-chan *RedisReplicaManagerUpdate 
 }
 
 func (c *redisReplicaManagerClient) Close() error {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-
-	c.housekeep_cancelFunc()
-
-	<-c.housekeep_done_channel
-
 	shutdown_packet := RedisReplicaManagerUpdate{
 		Event:  "site_shutdown",
 		SiteID: c.options.SiteID,
@@ -361,12 +354,19 @@ func (c *redisReplicaManagerClient) Close() error {
 	shutdown_json, _ := json.Marshal(shutdown_packet)
 	c.redis.Publish(context.Background(), c.keyPubsubChannel, string(shutdown_json)).Result()
 
-	// time.Sleep(time.Second)
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	c.housekeep_cancelFunc()
+
+	<-c.housekeep_done_channel
 
 	c.redis_subscriber_cancel_func()
 	c.redis_subscriber_handle.Close()
 
 	err0 := c.redis_subscriber.Close()
+
+	// time.Sleep(time.Second)
 
 	err1 := c._removeAllSiteSlots(context.Background(), c.options.SiteID, "shutdown")
 
