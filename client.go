@@ -211,10 +211,12 @@ func NewRedisReplicaManagerClient(ctx context.Context, options *ReplicaManagerOp
 				}
 
 				c.subscriber_channel_mu.RLock()
-				if c.subscriber_channel != nil {
-					c.subscriber_channel <- &packet
-				}
+				var ch = c.subscriber_channel
 				c.subscriber_channel_mu.RUnlock()
+
+				if ch != nil {
+					ch <- &packet
+				}
 			}
 		}
 
